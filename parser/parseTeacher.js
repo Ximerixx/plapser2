@@ -1,6 +1,9 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
+const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
+
 async function parseTeacher(date, teacher) {
     if (!teacher) {
         throw new Error('Параметр "teacher" обязателен');
@@ -16,8 +19,10 @@ async function parseTeacher(date, teacher) {
 
     const result = {};
 
-    $('.table > div').each((i, block) => {
-        const dateDiv = $(block).find('div').first();
+    // KIS отдает и "margin-bottom: 25px;" и "margin-bottom: 25px" без точки с запятой — ловим оба варианта
+    $('div.table > div[style*="margin-bottom: 25px"]').each((i, block) => {
+        const $block = $(block);
+        const dateDiv = $block.find('> div').first();
         const dayDiv = dateDiv.next('div');
 
         const dateText = dateDiv.find('strong').text().trim();
@@ -39,7 +44,7 @@ async function parseTeacher(date, teacher) {
             lessons: []
         };
 
-        const rows = $(block).find('table tbody tr');
+        const rows = $block.find('table tbody tr');
 
         rows.each((j, row) => {
             const cells = $(row).find('td');
@@ -55,46 +60,53 @@ async function parseTeacher(date, teacher) {
                 // Get all text content split by <br>
                 const cellContent = $(cells[1]);
                 const htmlContent = cellContent.html().split(/<br\s*\/?>/i).map(s => s.trim()).filter(Boolean);
-                
+
                 let subject = '';
-                let group = '';
+                const groups = [];
                 let subgroup = '';
                 let room = '';
-                
-                // Parse each line of content
+
+                // Parse each line of content (trim, skip empty; groups may have trailing space)
                 htmlContent.forEach((line, index) => {
-                    const cleanText = $('<div>').html(line).text().trim();
-                    
+                    const s = $('<div>').html(line).text().trim();
+                    if (s === '') return;
+
                     if (index === 0) {
-                        // First line is the subject
-                        subject = cleanText;
-                    } else if (cleanText.includes('п.г.')) {
-                        // This is subgroup info (п.г. = подгруппа)
-                        subgroup = cleanText;
-                    } else if (cleanText && !cleanText.match(/^\d+/)) {
-                        // This looks like a group name (not starting with digits like room numbers)
-                        // Group names usually match pattern like ИС2-244-ОБ
-                        if (cleanText.match(/[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/) || cleanText.length > 3) {
-                            group = cleanText;
-                        }
+                        subject = s;
+                        return;
+                    }
+                    if (s.includes('п.г.')) {
+                        subgroup = s;
+                        return;
+                    }
+                    // One group (whole line)
+                    if (GROUP_REGEX.test(s) && !groups.includes(s)) {
+                        groups.push(s);
+                        return;
+                    }
+                    // Several groups in one line
+                    const matched = s.match(GROUP_REGEX_GLOBAL);
+                    if (matched) {
+                        matched.forEach((g) => {
+                            if (!groups.includes(g)) groups.push(g);
+                        });
                     }
                 });
-                
+
                 // Extract room from link
                 const link = cellContent.find('a').text().trim();
                 if (link) {
                     room = link;
                 }
-                
-                // If we only found subgroup but no group, put subgroup in group field
-                if (!group && subgroup) {
-                    group = subgroup;
-                }
+
+                // Backward compatibility: group = first or joined; also expose groups array
+                const group = groups.length > 0 ? groups.join(', ') : (subgroup || '');
 
                 result[dateKey].lessons.push({
                     time,
                     subject,
                     group,
+                    groups: groups.length > 0 ? groups : undefined,
                     room,
                     subgroup: subgroup || null
                 });

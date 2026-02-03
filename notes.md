@@ -1012,4 +1012,13 @@ curl -L http://api.durka.su/next_plugin/install.sh | bash
 
 ---
 
+## Notes Log (parser fixes)
+
+**parseStudent.js - Day block selector and group parsing (2026-02)**
+- KIS HTML uses two style variants for day blocks: `style="margin-bottom: 25px;"` and `style="margin-bottom: 25px"` (no semicolon). Selector changed from exact `[style="margin-bottom: 25px;"]` to `[style*="margin-bottom: 25px"]` so both variants match (including "Нет пар" days).
+- Group names in content cell come after `<br>` and often have trailing/leading whitespace (e.g. "ИС2-241-ОБ \n"). GROUP_REGEX uses ^ and $ so only trimmed strings matched. All text elements are now trimmed before use (`s = element.trim()`), empty strings skipped.
+- Multiple groups: kept single-group check (GROUP_REGEX) and added GROUP_REGEX_GLOBAL to extract all group patterns from one element when several groups appear on one line. Each group is added to lesson.groups without duplicates.
+
+---
+
 END OF NOTES
