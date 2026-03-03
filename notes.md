@@ -116,9 +116,9 @@ allowedHeaders: ['Content-Type', 'Authorization']
    - Filters lessons with valid time format (contains "-")
    - Creates calendar events with:
      - Start/end times parsed from "HH:MM-HH:MM" format
-     - Summary: lesson name + type (if modernCalFormat) + classroom
+     - Summary: lesson name + type (if modernCalFormat) + auditory
      - Description: teacher + subgroup info
-     - Location: classroom
+     - Location: auditory
    - Returns ICS file with appropriate headers
 
 **Response Headers (ICS):**
@@ -245,7 +245,7 @@ allowedHeaders: ['Content-Type', 'Authorization']
      - Extracts lesson content from cells with style="width:auto"
      - Parses content elements:
        - Text nodes and `<br>` tags split content
-       - `<a>` tags contain classroom links
+       - `<a>` tags contain auditory/room links
        - Identifies lesson type (лек./пр./лаб.)
        - Extracts lesson name
        - Finds subgroup info (п.г.)
@@ -260,7 +260,7 @@ allowedHeaders: ['Content-Type', 'Authorization']
        name: "Lesson name",
        subgroup: "1" | "2" | "",
        groups: [group, ...],
-       classroom: "Room",
+       auditory: "Room",
        teacher: "Name И.О."
      }
      ```
@@ -272,7 +272,7 @@ allowedHeaders: ['Content-Type', 'Authorization']
     date: "DD месяц YYYY",
     dayOfWeek: "день недели",
     lessons: [
-      { time, type, name, subgroup, groups, classroom, teacher },
+      { time, type, name, subgroup, groups, auditory, room, teacher },
       ...
     ]
   }
@@ -581,7 +581,7 @@ location / {
         "name": "Прикладные задачи программирования",
         "subgroup": "1",
         "groups": ["ИС2-244-ОБ"],
-        "classroom": "104Комп/7к",
+        "auditory": "104Комп/7к",
         "teacher": "Иванов И.И."
       }
     ]
@@ -604,9 +604,9 @@ location / {
 - Generated using ical-generator library
 - Events include:
   - DTSTART/DTEND with timezone
-  - SUMMARY (lesson name + type + classroom if modernCalFormat)
+  - SUMMARY (lesson name + type + auditory if modernCalFormat)
   - DESCRIPTION (teacher + subgroup)
-  - LOCATION (classroom)
+  - LOCATION (auditory)
   - Timezone: Europe/Moscow
 
 ---

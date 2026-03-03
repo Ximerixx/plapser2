@@ -13,12 +13,6 @@ CREATE TABLE IF NOT EXISTS teachers (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE IF NOT EXISTS classrooms (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
 CREATE TABLE IF NOT EXISTS auditories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
@@ -56,7 +50,6 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
   group_id INTEGER NOT NULL REFERENCES groups(id),
   teacher_id INTEGER REFERENCES teachers(id),
   subject_id INTEGER REFERENCES subjects(id),
-  classroom_id INTEGER REFERENCES classrooms(id),
   auditory_id INTEGER REFERENCES auditories(id),
   lesson_type TEXT,
   subgroup TEXT,

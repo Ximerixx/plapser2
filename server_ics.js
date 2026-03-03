@@ -56,7 +56,7 @@ app.get("/gen", async (req, res) => {
                         start: [year, month, dayNum, hourStart, minStart],
                         end: [year, month, dayNum, hourEnd, minEnd],
                         description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                        location: lesson.classroom
+                        location: lesson.auditory || lesson.room
                     };
                 });
 
@@ -97,7 +97,7 @@ app.get("/gen", async (req, res) => {
                         start: [year, month, dayNum, hourStart, minStart],
                         end: [year, month, dayNum, hourEnd, minEnd],
                         description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                        location: lesson.classroom
+                        location: lesson.auditory || lesson.room
                     };
                 });
 

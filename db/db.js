@@ -41,6 +41,32 @@ function runMigrations(d) {
     } catch (_) {}
     migrateEntityTypeToIncludeAuditory(d);
     migrateSourceAsked(d);
+    migrateClassroomsToAuditories(d);
+}
+
+function migrateClassroomsToAuditories(d) {
+    if (!columnExists(d, 'schedule_slots', 'classroom_id')) return;
+    const hasClassrooms = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='classrooms'").get();
+    if (hasClassrooms) {
+        d.exec('INSERT OR IGNORE INTO auditories (name) SELECT name FROM classrooms');
+        d.exec(`
+            UPDATE schedule_slots SET auditory_id = (
+                SELECT a.id FROM classrooms c
+                JOIN auditories a ON a.name = c.name
+                WHERE c.id = schedule_slots.classroom_id
+            ) WHERE classroom_id IS NOT NULL
+        `);
+    }
+    d.pragma('foreign_keys = OFF');
+    try {
+        d.exec('ALTER TABLE schedule_slots DROP COLUMN classroom_id');
+    } catch (e) {
+        console.warn('migrateClassroomsToAuditories: DROP COLUMN failed (old SQLite?), skipping:', e.message);
+    }
+    try {
+        d.exec('DROP TABLE IF EXISTS classrooms');
+    } catch (_) {}
+    d.pragma('foreign_keys = ON');
 }
 
 function migrateSourceAsked(d) {
@@ -143,15 +169,6 @@ function ensureTeacher(name) {
     return result.lastInsertRowid;
 }
 
-function ensureClassroom(name) {
-    if (!name || name.trim() === '') return null;
-    const d = getDb();
-    let row = d.prepare('SELECT id FROM classrooms WHERE name = ?').get(name);
-    if (row) return row.id;
-    const result = d.prepare('INSERT INTO classrooms (name) VALUES (?)').run(name);
-    return result.lastInsertRowid;
-}
-
 function ensureAuditory(name) {
     if (!name || name.trim() === '') return null;
     const d = getDb();
@@ -173,8 +190,8 @@ function ensureSubject(name) {
 function insertScheduleSlot(row) {
     const d = getDb();
     d.prepare(`
-        INSERT INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, classroom_id, auditory_id, lesson_type, subgroup, request_stats_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, auditory_id, lesson_type, subgroup, request_stats_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         row.date,
         row.time_start,
@@ -182,7 +199,6 @@ function insertScheduleSlot(row) {
         row.group_id,
         row.teacher_id ?? null,
         row.subject_id ?? null,
-        row.classroom_id ?? null,
         row.auditory_id ?? null,
         row.lesson_type ?? null,
         row.subgroup ?? null,
@@ -232,12 +248,12 @@ function getStudentSchedule(groupName, date, subgroup = null) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.lesson_type, s.subgroup,
-               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, c.name AS classroom_name
+               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, a.name AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN teachers t ON s.teacher_id = t.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
-        LEFT JOIN classrooms c ON s.classroom_id = c.id
+        LEFT JOIN auditories a ON s.auditory_id = a.id
         WHERE s.group_id = ? AND s.date = ?
         ORDER BY s.time_start
     `).all(groupRow.id, date);
@@ -248,13 +264,15 @@ function getStudentSchedule(groupName, date, subgroup = null) {
     const dateDisplay = formatDateDisplay(date);
     const lessons = rows.map(r => {
         if (subgroup !== undefined && subgroup !== null && r.subgroup && String(r.subgroup) !== String(subgroup)) return null;
+        const auditory = r.auditory_name || '';
         return {
             time: `${r.time_start}-${r.time_end}`,
             type: r.lesson_type || '',
             name: r.subject_name || '',
             subgroup: r.subgroup || '',
             groups: [r.group_name],
-            classroom: r.classroom_name || '',
+            auditory,
+            room: auditory,
             teacher: r.teacher_name || ''
         };
     }).filter(Boolean);
@@ -290,11 +308,11 @@ function getTeacherSchedule(teacherName, date) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.subgroup,
-               g.name AS group_name, sub.name AS subject_name, c.name AS classroom_name
+               g.name AS group_name, sub.name AS subject_name, a.name AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
-        LEFT JOIN classrooms c ON s.classroom_id = c.id
+        LEFT JOIN auditories a ON s.auditory_id = a.id
         WHERE s.teacher_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
     `).all(teacherRow.id, date);
@@ -306,8 +324,9 @@ function getTeacherSchedule(teacherName, date) {
     const byTime = {};
     rows.forEach(r => {
         const time = `${r.time_start}-${r.time_end}`;
+        const auditory = r.auditory_name || '';
         if (!byTime[time]) {
-            byTime[time] = { time, subject: r.subject_name || '', groups: [], room: r.classroom_name || '', subgroup: r.subgroup || null };
+            byTime[time] = { time, subject: r.subject_name || '', groups: [], auditory, room: auditory, subgroup: r.subgroup || null };
         }
         if (r.group_name && !byTime[time].groups.includes(r.group_name)) byTime[time].groups.push(r.group_name);
     });
@@ -316,6 +335,7 @@ function getTeacherSchedule(teacherName, date) {
         subject: o.subject,
         group: o.groups.join(', '),
         groups: o.groups.length ? o.groups : undefined,
+        auditory: o.auditory,
         room: o.room,
         subgroup: o.subgroup || null
     }));
@@ -363,12 +383,12 @@ function getAuditorySchedule(auditoryName, date) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.subgroup,
-               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, c.name AS classroom_name
+               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, a.name AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN teachers t ON s.teacher_id = t.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
-        LEFT JOIN classrooms c ON s.classroom_id = c.id
+        LEFT JOIN auditories a ON s.auditory_id = a.id
         WHERE s.auditory_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
     `).all(auditoryRow.id, date);
@@ -380,8 +400,9 @@ function getAuditorySchedule(auditoryName, date) {
     const byTime = {};
     rows.forEach(r => {
         const time = `${r.time_start}-${r.time_end}`;
+        const auditory = r.auditory_name || '';
         if (!byTime[time]) {
-            byTime[time] = { time, subject: r.subject_name || '', groups: [], room: r.classroom_name || '', subgroup: r.subgroup || null, teacher: r.teacher_name || '' };
+            byTime[time] = { time, subject: r.subject_name || '', groups: [], auditory, room: auditory, subgroup: r.subgroup || null, teacher: r.teacher_name || '' };
         }
         if (r.group_name && !byTime[time].groups.includes(r.group_name)) byTime[time].groups.push(r.group_name);
     });
@@ -390,6 +411,7 @@ function getAuditorySchedule(auditoryName, date) {
         subject: o.subject,
         group: o.groups.join(', '),
         groups: o.groups.length ? o.groups : undefined,
+        auditory: o.auditory,
         room: o.room,
         subgroup: o.subgroup || null,
         teacher: o.teacher
@@ -455,8 +477,8 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                 const [timeStart, timeEnd] = lesson.time.split('-').map(s => s.trim());
                 const teacherId = lesson.teacher ? ensureTeacher(lesson.teacher) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : null;
-                const classroomId = (lesson.classroom && lesson.classroom.trim()) ? ensureClassroom(lesson.classroom.trim()) : null;
-                const auditoryId = (lesson.classroom && lesson.classroom.trim()) ? ensureAuditory(lesson.classroom.trim()) : null;
+                const roomName = lesson.auditory || lesson.room || lesson.classroom;
+                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
                 insertScheduleSlot({
                     date: dateKey,
                     time_start: timeStart,
@@ -464,7 +486,6 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                     group_id: groupId,
                     teacher_id: teacherId,
                     subject_id: subjectId,
-                    classroom_id: classroomId,
                     auditory_id: auditoryId,
                     lesson_type: lesson.type || null,
                     subgroup: lesson.subgroup || null,
@@ -496,8 +517,8 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                 if (!lesson.time || !lesson.time.includes('-')) continue;
                 const [timeStart, timeEnd] = lesson.time.split('-').map(s => s.trim());
                 const subjectId = (lesson.subject && lesson.subject.trim()) ? ensureSubject(lesson.subject.trim()) : null;
-                const classroomId = (lesson.room && lesson.room.trim()) ? ensureClassroom(lesson.room.trim()) : null;
-                const auditoryId = (lesson.room && lesson.room.trim()) ? ensureAuditory(lesson.room.trim()) : null;
+                const roomName = lesson.auditory || lesson.room;
+                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
                 const groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 for (const groupName of groups) {
                     if (!groupName || !groupName.trim()) continue;
@@ -509,7 +530,6 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                         group_id: groupId,
                         teacher_id: teacherId,
                         subject_id: subjectId,
-                        classroom_id: classroomId,
                         auditory_id: auditoryId,
                         lesson_type: null,
                         subgroup: lesson.subgroup || null,
@@ -543,7 +563,8 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                 const [timeStart, timeEnd] = lesson.time.split('-').map(s => s.trim());
                 const teacherId = (lesson.teacher && lesson.teacher.trim()) ? ensureTeacher(lesson.teacher.trim()) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : (lesson.subject && lesson.subject.trim() ? ensureSubject(lesson.subject.trim()) : null);
-                const classroomId = (lesson.classroom && lesson.classroom.trim()) ? ensureClassroom(lesson.classroom.trim()) : ensureClassroom(auditoryName);
+                const roomName = lesson.auditory || lesson.room || lesson.classroom;
+                const lessonAuditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : auditoryId;
                 let groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 groups = groups.filter(g => g && g.trim());
                 if (groups.length === 0) groups = ['—'];
@@ -557,8 +578,7 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                         group_id: groupId,
                         teacher_id: teacherId,
                         subject_id: subjectId,
-                        classroom_id: classroomId,
-                        auditory_id: auditoryId,
+                        auditory_id: lessonAuditoryId,
                         lesson_type: lesson.type || null,
                         subgroup: lesson.subgroup || null,
                         request_stats_id: requestStatsId
@@ -574,7 +594,6 @@ module.exports = {
     getDb,
     ensureGroup,
     ensureTeacher,
-    ensureClassroom,
     ensureAuditory,
     ensureSubject,
     insertScheduleSlot,

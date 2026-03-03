@@ -10,6 +10,7 @@ const STATIC_FILES = [
   '/gui',
   '/searchStudent',
   '/searchTeacher',
+  '/searchAuditory',
   '/stylesheet.css',
   '/gen.js',
   '/manifest.json',
@@ -81,29 +82,29 @@ async function getAllCacheMetadata() {
 }
 
 // Очистка старых записей (FIFO)
-async function cleanupOldCache(limitGroups, limitTeachers) {
+async function cleanupOldCache(limitGroups, limitTeachers, limitAuditories = 10) {
   try {
     const allMetadata = await getAllCacheMetadata();
-    const groups = allMetadata.filter(m => m.url.includes('/gen?group='));
+    const groups = allMetadata.filter(m => m.url.includes('/gen?group=') && !m.url.includes('/gen_teach') && !m.url.includes('/gen_auditory'));
     const teachers = allMetadata.filter(m => m.url.includes('/gen_teach?teacher='));
+    const auditories = allMetadata.filter(m => m.url.includes('/gen_auditory?auditory='));
     
-    // Сортируем по времени обновления (старые первыми)
-    groups.sort((a, b) => a.updatedAt - b.updatedAt);
-    teachers.sort((a, b) => a.updatedAt - b.updatedAt);
+    groups.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    teachers.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    auditories.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
     
-    // Удаляем лишние
     const groupsToDelete = groups.slice(0, Math.max(0, groups.length - limitGroups));
     const teachersToDelete = teachers.slice(0, Math.max(0, teachers.length - limitTeachers));
+    const auditoriesToDelete = auditories.slice(0, Math.max(0, auditories.length - limitAuditories));
     
     const db = await openDB();
     const tx = db.transaction('cacheMetadata', 'readwrite');
     const store = tx.objectStore('cacheMetadata');
+    const cache = await caches.open(API_CACHE);
     
-    for (const item of [...groupsToDelete, ...teachersToDelete]) {
-      await store.delete(item.url);
-      // Также удаляем из кэша
-      const cache = await caches.open(API_CACHE);
-      await cache.delete(item.url);
+    for (const item of [...groupsToDelete, ...teachersToDelete, ...auditoriesToDelete]) {
+      store.delete(item.url);
+      cache.delete(item.url);
     }
   } catch (error) {
     console.error('[SW] Error cleaning up cache:', error);
@@ -149,12 +150,10 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => {
-      // Очистка старых записей при активации
-      return cleanupOldCache(10, 20);
-    })
+    }).then(() => cleanupOldCache(10, 20, 10))
+      .then(() => self.clients.claim())
+      .then(() => backgroundUpdate())
   );
-  return self.clients.claim();
 });
 
 // Перехват запросов
@@ -164,20 +163,17 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = request.url;
 
   // API запросы - кэшируем с проверкой сети
-  if (url.pathname.startsWith('/gen') || url.pathname.startsWith('/gen_teach') || url.pathname.startsWith('/api/')) {
+  const isGenApi = url.pathname === '/gen' || url.pathname.startsWith('/gen_teach') || url.pathname.startsWith('/gen_auditory') || url.pathname.startsWith('/api/');
+  if (isGenApi) {
     event.respondWith(
       caches.open(API_CACHE).then((cache) => {
         return fetch(request)
           .then(async (response) => {
-            // Кэшируем успешные ответы
             if (response.status === 200) {
               const responseClone = response.clone();
               await cache.put(request, responseClone);
-              // Сохраняем метаданные
               await saveCacheMetadata(requestUrl, Date.now());
-              // Очистка старых записей
-              const isGroup = requestUrl.includes('/gen?group=');
-              await cleanupOldCache(isGroup ? 10 : 0, isGroup ? 0 : 20);
+              await cleanupOldCache(10, 20, 10);
             }
             return response;
           })
@@ -217,9 +213,10 @@ self.addEventListener('fetch', (event) => {
 
   // Статические файлы и HTML страницы - стратегия "Cache First"
   if (url.origin === location.origin) {
-    const isHTMLPage = url.pathname === '/gui' || 
-                       url.pathname === '/searchStudent' || 
-                       url.pathname === '/searchTeacher';
+    const isHTMLPage = url.pathname === '/gui' ||
+                       url.pathname === '/searchStudent' ||
+                       url.pathname === '/searchTeacher' ||
+                       url.pathname === '/searchAuditory';
     
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
@@ -251,12 +248,14 @@ self.addEventListener('fetch', (event) => {
             }
             // Если это HTML страница и нет в кэше, пробуем найти любую HTML страницу
             if (isHTMLPage) {
-              // Пробуем найти любую из страниц в кэше
               return caches.match('/gui').then(gui => {
                 if (gui) return gui;
                 return caches.match('/searchStudent').then(student => {
                   if (student) return student;
-                  return caches.match('/searchTeacher');
+                  return caches.match('/searchTeacher').then(teacher => {
+                    if (teacher) return teacher;
+                    return caches.match('/searchAuditory');
+                  });
                 });
               });
             }
@@ -279,29 +278,18 @@ async function backgroundUpdate() {
   }
 
   try {
-    // Получаем недавние из cookies (через сообщение клиенту)
     const clients = await self.clients.matchAll();
     if (clients.length === 0) {
-      // Если нет клиентов, получаем из IndexedDB все что есть
       const allMetadata = await getAllCacheMetadata();
-      const groups = allMetadata.filter(m => m.url.includes('/gen?group=')).slice(0, 12);
+      const groups = allMetadata.filter(m => m.url.includes('/gen?group=') && !m.url.includes('/gen_teach') && !m.url.includes('/gen_auditory')).slice(0, 12);
       const teachers = allMetadata.filter(m => m.url.includes('/gen_teach?teacher=')).slice(0, 12);
-      
-      const groupNames = groups.map(g => {
-        const url = new URL(g.url, self.location.origin);
-        return url.searchParams.get('group');
-      }).filter(Boolean);
-      
-      const teacherNames = teachers.map(t => {
-        const url = new URL(t.url, self.location.origin);
-        return url.searchParams.get('teacher');
-      }).filter(Boolean);
-      
-      await updateRecentItems(groupNames, teacherNames);
+      const auditories = allMetadata.filter(m => m.url.includes('/gen_auditory?auditory=')).slice(0, 12);
+      const groupNames = groups.map(g => new URL(g.url, self.location.origin).searchParams.get('group')).filter(Boolean);
+      const teacherNames = teachers.map(t => new URL(t.url, self.location.origin).searchParams.get('teacher')).filter(Boolean);
+      const auditoryNames = auditories.map(a => new URL(a.url, self.location.origin).searchParams.get('auditory')).filter(Boolean);
+      await updateRecentItems(groupNames, teacherNames, auditoryNames);
       return;
     }
-
-    // Отправляем запрос на получение недавних
     clients[0].postMessage({ type: 'GET_RECENT_ITEMS' });
   } catch (error) {
     console.error('[SW] Error in background update:', error);
@@ -318,25 +306,22 @@ self.addEventListener('message', async (event) => {
   }
   
   if (event.data && event.data.type === 'GET_RECENT_ITEMS_RESPONSE') {
-    const { recentGroups, recentTeachers } = event.data;
-    await updateRecentItems(recentGroups || [], recentTeachers || []);
+    const { recentGroups, recentTeachers, recentAuditories } = event.data;
+    await updateRecentItems(recentGroups || [], recentTeachers || [], recentAuditories || []);
   }
   
   if (event.data && event.data.type === 'START_BACKGROUND_UPDATE') {
-    await updateRecentItems(event.data.recentGroups || [], event.data.recentTeachers || []);
+    await updateRecentItems(event.data.recentGroups || [], event.data.recentTeachers || [], event.data.recentAuditories || []);
   }
 });
 
 // Обновление недавних элементов
-async function updateRecentItems(recentGroups, recentTeachers) {
+async function updateRecentItems(recentGroups, recentTeachers, recentAuditories = []) {
   const cache = await caches.open(API_CACHE);
   const today = new Date().toISOString().split('T')[0];
-  
-  // Уведомляем клиента о начале обновления
   const clients = await self.clients.matchAll();
-  const totalItems = recentGroups.length + recentTeachers.length;
-  
-  // Обновляем недавние группы (до 12)
+  const totalItems = recentGroups.length + recentTeachers.length + recentAuditories.length;
+
   for (const group of recentGroups.slice(0, 12)) {
     try {
       const url = `/gen?group=${encodeURIComponent(group)}&type=json&date=${today}`;
@@ -344,22 +329,13 @@ async function updateRecentItems(recentGroups, recentTeachers) {
       if (response.ok) {
         await cache.put(url, response.clone());
         await saveCacheMetadata(url, Date.now());
-        // Уведомляем клиента
-        clients.forEach(client => {
-          client.postMessage({ 
-            type: 'CACHE_UPDATED', 
-            item: group, 
-            itemType: 'group',
-            total: totalItems
-          });
-        });
+        clients.forEach(c => c.postMessage({ type: 'CACHE_UPDATED', item: group, itemType: 'group', total: totalItems }));
       }
-    } catch (error) {
-      console.error(`[SW] Error updating group ${group}:`, error);
+    } catch (e) {
+      console.error(`[SW] Error updating group ${group}:`, e);
     }
   }
-  
-  // Обновляем недавние преподавателей (до 12)
+
   for (const teacher of recentTeachers.slice(0, 12)) {
     try {
       const url = `/gen_teach?teacher=${encodeURIComponent(teacher)}&type=json&date=${today}`;
@@ -367,37 +343,30 @@ async function updateRecentItems(recentGroups, recentTeachers) {
       if (response.ok) {
         await cache.put(url, response.clone());
         await saveCacheMetadata(url, Date.now());
-        // Уведомляем клиента
-        clients.forEach(client => {
-          client.postMessage({ 
-            type: 'CACHE_UPDATED', 
-            item: teacher, 
-            itemType: 'teacher',
-            total: totalItems
-          });
-        });
+        clients.forEach(c => c.postMessage({ type: 'CACHE_UPDATED', item: teacher, itemType: 'teacher', total: totalItems }));
       }
-    } catch (error) {
-      console.error(`[SW] Error updating teacher ${teacher}:`, error);
+    } catch (e) {
+      console.error(`[SW] Error updating teacher ${teacher}:`, e);
     }
   }
-  
-  // Уведомляем о завершении
-  clients.forEach(client => {
-    client.postMessage({ 
-      type: 'CACHE_UPDATE_COMPLETE'
-    });
-  });
-  
-  // Очистка старых записей
-  await cleanupOldCache(10, 20);
-}
 
-// Периодическое обновление при активации
-self.addEventListener('activate', (event) => {
-  // Запускаем обновление сразу при активации
-  event.waitUntil(backgroundUpdate());
-});
+  for (const auditory of recentAuditories.slice(0, 12)) {
+    try {
+      const url = `/gen_auditory?auditory=${encodeURIComponent(auditory)}&type=json&date=${today}`;
+      const response = await fetch(url);
+      if (response.ok) {
+        await cache.put(url, response.clone());
+        await saveCacheMetadata(url, Date.now());
+        clients.forEach(c => c.postMessage({ type: 'CACHE_UPDATED', item: auditory, itemType: 'auditory', total: totalItems }));
+      }
+    } catch (e) {
+      console.error(`[SW] Error updating auditory ${auditory}:`, e);
+    }
+  }
+
+  clients.forEach(c => c.postMessage({ type: 'CACHE_UPDATE_COMPLETE' }));
+  await cleanupOldCache(10, 20, 10);
+}
 
 // Обновление каждый час через таймер (работает пока Service Worker активен)
 let updateTimer = null;

@@ -87,7 +87,8 @@ async function parseStudent(date, group, subgroup = null) {
                     name: '',
                     subgroup: '',
                     groups: [group],
-                    classroom: '',
+                    auditory: '',
+                    room: '',
                     teacher: ''
                 };
 
@@ -113,7 +114,8 @@ async function parseStudent(date, group, subgroup = null) {
                 let hasType = false;
                 elements.forEach((element, idx) => {
                     if (typeof element === 'object') {
-                        lesson.classroom = element.value;
+                        lesson.auditory = element.value;
+                        lesson.room = element.value;
                         return;
                     }
 

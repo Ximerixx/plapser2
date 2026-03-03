@@ -173,9 +173,9 @@ app.get("/gen", async (req, res) => {
                         calendar.createEvent({
                             start: new Date(y, mo - 1, d, hS, mS),
                             end: new Date(y, mo - 1, d, hE, mE),
-                            summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + (lesson.classroom || ''),
+                            summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + ((lesson.auditory || lesson.room) || ''),
                             description: (lesson.teacher || '') + (lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ''),
-                            location: lesson.classroom || '',
+                            location: (lesson.auditory || lesson.room) || '',
                             timezone: TIMEZONE
                         });
                     }
@@ -190,9 +190,9 @@ app.get("/gen", async (req, res) => {
                     calendar.createEvent({
                         start: new Date(y, mo - 1, d, hS, mS),
                         end: new Date(y, mo - 1, d, hE, mE),
-                        summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + (lesson.classroom || ''),
+                        summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + ((lesson.auditory || lesson.room) || ''),
                         description: (lesson.teacher || '') + (lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ''),
-                        location: lesson.classroom || '',
+                        location: (lesson.auditory || lesson.room) || '',
                         timezone: TIMEZONE
                     });
                 }
@@ -278,9 +278,9 @@ app.get("/gen", async (req, res) => {
                             calendar.createEvent({
                                 start: new Date(year, month - 1, dayNum, hourStart, minStart),
                                 end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
-                                summary: lesson.name + (lesson.type ? ` (${lesson.type})` : "") + lesson.classroom,
+                                summary: lesson.name + (lesson.type ? ` (${lesson.type})` : "") + (lesson.auditory || lesson.room),
                                 description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                                location: lesson.classroom,
+                                location: (lesson.auditory || lesson.room),
                                 timezone: TIMEZONE
                             });
                         } else if (!modernCalFormat) {
@@ -289,7 +289,7 @@ app.get("/gen", async (req, res) => {
                                 end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
                                 summary: lesson.name + (lesson.type ? ` (${lesson.type})` : ""),
                                 description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                                location: lesson.classroom,
+                                location: (lesson.auditory || lesson.room),
                                 timezone: TIMEZONE
                             });
                         }
@@ -330,9 +330,9 @@ app.get("/gen", async (req, res) => {
                     calendar.createEvent({
                         start: new Date(year, month - 1, dayNum, hourStart, minStart),
                         end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
-                        summary: lesson.name + (lesson.type ? ` (${lesson.type})` : "") + lesson.classroom,
+                        summary: lesson.name + (lesson.type ? ` (${lesson.type})` : "") + (lesson.auditory || lesson.room),
                         description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                        location: lesson.classroom,
+                        location: (lesson.auditory || lesson.room),
                         timezone: TIMEZONE
                     });
                 } else if (!modernCalFormat) {
@@ -341,7 +341,7 @@ app.get("/gen", async (req, res) => {
                         end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
                         summary: lesson.name + (lesson.type ? ` (${lesson.type})` : ""),
                         description: `${lesson.teacher}${lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ""}`,
-                        location: lesson.classroom,
+                        location: (lesson.auditory || lesson.room),
                         timezone: TIMEZONE
                     });
                 }

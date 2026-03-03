@@ -209,7 +209,7 @@ sudo systemctl start plapser
         "name": "Прикладные задачи программирования",
         "subgroup": "1",
         "groups": ["ИС2-244-ОБ"],
-        "classroom": "104Комп/7к",
+        "auditory": "104Комп/7к",
         "teacher": "Иванов И.И."
       }
     ]
