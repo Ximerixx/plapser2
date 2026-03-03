@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const path = require('path');
 const { parseTeacher } = require("./parser/parseTeacher");
+const { parseAuditory } = require("./parser/parseAuditory");
 
 let dbLayer = null;
 try {
@@ -150,17 +151,34 @@ app.get("/gen", async (req, res) => {
     try {
         const startTime = Date.now();
         if (type === "json" || type === "json-week") {
-            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'group',
+                        entityKey: group,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'group', group, type, source);
+            }
             if (type === "json-week") {
-                recordScheduleStats(req, startTime, 'group', group, type);
                 return res.json(fullData || {});
             } else {
                 const result = {};
                 if (fullData && fullData[baseDate]) {
                     result[baseDate] = fullData[baseDate];
                 }
-                recordScheduleStats(req, startTime, 'group', group, type);
                 return res.json(result);
             }
         }
@@ -172,8 +190,27 @@ app.get("/gen", async (req, res) => {
         });
 
         if (type === "ics-week") {
-            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'group',
+                        entityKey: group,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'group', group, type, source);
+            }
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -207,8 +244,27 @@ app.get("/gen", async (req, res) => {
                 }
             }
         } else {
-            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'group',
+                        entityKey: group,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'group', group, type, source);
+            }
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -244,7 +300,6 @@ app.get("/gen", async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Published-TTL", "PT1H");
 
-        recordScheduleStats(req, startTime, 'group', group, type);
         res.send(calendar.toString());
     } catch (err) {
         console.error(err);
@@ -282,17 +337,34 @@ app.get("/gen_teach", async (req, res) => {
     try {
         const startTime = Date.now();
         if (type === "json" || type === "json-week") {
-            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'teacher',
+                        entityKey: teacher,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
+            }
             if (type === "json-week") {
-                recordScheduleStats(req, startTime, 'teacher', teacher, type);
                 return res.json(fullData || {});
             } else {
                 const result = {};
                 if (fullData && fullData[baseDate]) {
                     result[baseDate] = fullData[baseDate];
                 }
-                recordScheduleStats(req, startTime, 'teacher', teacher, type);
                 return res.json(result);
             }
         }
@@ -303,8 +375,27 @@ app.get("/gen_teach", async (req, res) => {
         });
 
         if (type === "ics-week") {
-            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'teacher',
+                        entityKey: teacher,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
+            }
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -339,8 +430,27 @@ app.get("/gen_teach", async (req, res) => {
                 }
             }
         } else {
-            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
             setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'teacher',
+                        entityKey: teacher,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
+            }
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -377,7 +487,186 @@ app.get("/gen_teach", async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Published-TTL", "PT1H");
 
-        recordScheduleStats(req, startTime, 'teacher', teacher, type);
+        res.send(calendar.toString());
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("damm 500, you must be hard on this, don't you?");
+    }
+});
+
+app.get("/gen_auditory", async (req, res) => {
+    const { date, auditory, type: rawType, tomorrow } = req.query;
+
+    if (!auditory || !rawType) {
+        return res.status(400).send("Need: auditory, type (+ date or tomorrow/json-week/ics-week)");
+    }
+
+    const type = rawType.toLowerCase();
+
+    if (!allowedTypes.has(type)) {
+        return res.status(400).send("Bad type. Allowed: json, json-week, ics, ics-week");
+    }
+
+    let baseDate;
+
+    if (tomorrow === "true") {
+        baseDate = getDateOffset(1, baseDate);
+    } else if (date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).send("Bad date format. Use YYYY-MM-DD");
+        }
+        baseDate = date;
+    } else {
+        baseDate = getDateOffset(0, baseDate);
+    }
+
+    try {
+        const startTime = Date.now();
+        if (type === "json" || type === "json-week") {
+            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'auditory',
+                        entityKey: auditory,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
+            }
+            if (type === "json-week") {
+                return res.json(fullData || {});
+            } else {
+                const result = {};
+                if (fullData && fullData[baseDate]) {
+                    result[baseDate] = fullData[baseDate];
+                }
+                return res.json(result);
+            }
+        }
+
+        const calendar = ical({
+            name: `Расписание для аудитории ${auditory}`,
+            timezone: TIMEZONE
+        });
+
+        if (type === "ics-week") {
+            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'auditory',
+                        entityKey: auditory,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
+            }
+            if (fullData) {
+                for (const day in fullData) {
+                    const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                    for (const lesson of lessons) {
+                        const [startTime, endTime] = lesson.time.split("-");
+                        const [hourStart, minStart] = startTime.split(":").map(Number);
+                        const [hourEnd, minEnd] = endTime.split(":").map(Number);
+                        const [year, month, dayNum] = day.split("-").map(Number);
+                        if (modernCalFormat) {
+                            calendar.createEvent({
+                                start: new Date(year, month - 1, dayNum, hourStart, minStart),
+                                end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
+                                summary: lesson.subject || "Занятие",
+                                description: `${lesson.room || ""} ${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                                location: lesson.room || "",
+                                timezone: TIMEZONE
+                            });
+                        } else {
+                            calendar.createEvent({
+                                start: new Date(year, month - 1, dayNum, hourStart, minStart),
+                                end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
+                                summary: lesson.subject || "Занятие",
+                                description: `${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                                location: lesson.room || "",
+                                timezone: TIMEZONE
+                            });
+                        }
+                    }
+                }
+            }
+        } else {
+            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            setCacheHeaders(res, cacheInfo);
+            if (source === 'source' && dbLayer && fullData) {
+                try {
+                    const requestStatsId = dbLayer.insertRequestStats({
+                        ip: getClientIP(req),
+                        userAgent: req.headers['user-agent'] || null,
+                        entityType: 'auditory',
+                        entityKey: auditory,
+                        requestedAt: startTime,
+                        processingTimeMs: Date.now() - startTime,
+                        type,
+                        source: 'source'
+                    });
+                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                } catch (e) {
+                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
+                }
+            } else if (source !== 'source') {
+                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
+            }
+            const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+            for (const lesson of lessons) {
+                const [startTime, endTime] = lesson.time.split("-");
+                const [hourStart, minStart] = startTime.split(":").map(Number);
+                const [hourEnd, minEnd] = endTime.split(":").map(Number);
+                const [year, month, dayNum] = baseDate.split("-").map(Number);
+                if (modernCalFormat) {
+                    calendar.createEvent({
+                        start: new Date(year, month - 1, dayNum, hourStart, minStart),
+                        end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
+                        summary: lesson.subject || "Занятие",
+                        description: `${lesson.room || ""} ${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                        location: lesson.room || "",
+                        timezone: TIMEZONE
+                    });
+                } else {
+                    calendar.createEvent({
+                        start: new Date(year, month - 1, dayNum, hourStart, minStart),
+                        end: new Date(year, month - 1, dayNum, hourEnd, minEnd),
+                        summary: lesson.subject || "Занятие",
+                        description: `${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                        location: lesson.room || "",
+                        timezone: TIMEZONE
+                    });
+                }
+            }
+        }
+
+        res.setHeader("Content-Type", "text/calendar");
+        res.setHeader("Content-Disposition", `inline; filename=schedule-auditory${type === "ics-week" ? "-week" : ""}.ics`);
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-Published-TTL", "PT1H");
+
         res.send(calendar.toString());
     } catch (err) {
         console.error(err);
@@ -410,6 +699,10 @@ let teachersCache = {
     data: [],
     lastUpdated: 0
 };
+let auditoriesCache = {
+    data: [],
+    lastUpdated: 0
+};
 
 // Кэш расписаний: ключ = "student:group:date:subgroup" или "teacher:name:date"
 let scheduleCache = new Map();
@@ -418,9 +711,14 @@ let scheduleCache = new Map();
 function getScheduleCacheKey(type, entity, date, subgroup = null) {
     if (type === 'student') {
         return `student:${entity}:${date}:${subgroup || 'all'}`;
-    } else {
+    }
+    if (type === 'teacher') {
         return `teacher:${entity}:${date}`;
     }
+    if (type === 'auditory') {
+        return `auditory:${entity}:${date}`;
+    }
+    return `teacher:${entity}:${date}`;
 }
 
 function getCachedSchedule(key) {
@@ -467,7 +765,7 @@ function setCachedSchedule(key, data) {
     }
 }
 
-function recordScheduleStats(req, startTime, entityType, entityKey, responseType) {
+function recordScheduleStats(req, startTime, entityType, entityKey, responseType, source) {
     if (dbLayer && dbLayer.insertRequestStats) {
         try {
             dbLayer.insertRequestStats({
@@ -475,8 +773,10 @@ function recordScheduleStats(req, startTime, entityType, entityKey, responseType
                 userAgent: req.headers['user-agent'] || null,
                 entityType,
                 entityKey,
+                requestedAt: startTime,
                 processingTimeMs: Date.now() - startTime,
-                type: responseType
+                type: responseType,
+                source: source || 'cache'
             });
         } catch (e) {
             console.warn("request_stats insert failed:", e.message);
@@ -487,47 +787,49 @@ function recordScheduleStats(req, startTime, entityType, entityKey, responseType
 async function getStudentFullData(group, baseDate, subgroup) {
     const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
     const cacheInfo = getCachedSchedule(cacheKey);
-    if (cacheInfo) return { data: cacheInfo.data, cacheInfo };
+    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
     if (dbLayer) {
         const weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
-            return { data: weekData, cacheInfo: null };
+            return { data: weekData, cacheInfo: null, source: 'db' };
         }
     }
     const parsed = await parseStudent(baseDate, group, subgroup);
-    if (parsed && dbLayer && dbLayer.saveStudentScheduleToDb) {
-        try {
-            dbLayer.saveStudentScheduleToDb(group, baseDate, parsed);
-        } catch (e) {
-            console.warn("saveStudentScheduleToDb failed:", e.message);
-        }
-    }
     if (parsed) setCachedSchedule(cacheKey, parsed);
-    return { data: parsed || {}, cacheInfo: null };
+    return { data: parsed || {}, cacheInfo: null, source: 'source' };
 }
 
 async function getTeacherFullData(teacher, baseDate) {
     const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
     const cacheInfo = getCachedSchedule(cacheKey);
-    if (cacheInfo) return { data: cacheInfo.data, cacheInfo };
+    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
     if (dbLayer) {
         const weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
-            return { data: weekData, cacheInfo: null };
+            return { data: weekData, cacheInfo: null, source: 'db' };
         }
     }
     const parsed = await parseTeacher(baseDate, teacher);
-    if (parsed && dbLayer && dbLayer.saveTeacherScheduleToDb) {
-        try {
-            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, parsed);
-        } catch (e) {
-            console.warn("saveTeacherScheduleToDb failed:", e.message);
+    if (parsed) setCachedSchedule(cacheKey, parsed);
+    return { data: parsed || {}, cacheInfo: null, source: 'source' };
+}
+
+async function getAuditoryFullData(auditory, baseDate) {
+    const cacheKey = getScheduleCacheKey('auditory', auditory, baseDate);
+    const cacheInfo = getCachedSchedule(cacheKey);
+    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
+    if (dbLayer) {
+        const weekData = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
+        if (weekData) {
+            setCachedSchedule(cacheKey, weekData);
+            return { data: weekData, cacheInfo: null, source: 'db' };
         }
     }
+    const parsed = await parseAuditory(baseDate, auditory);
     if (parsed) setCachedSchedule(cacheKey, parsed);
-    return { data: parsed || {}, cacheInfo: null };
+    return { data: parsed || {}, cacheInfo: null, source: 'source' };
 }
 
 
@@ -568,6 +870,26 @@ app.get('/api/teachers', async (req, res) => {
     } catch (error) {
         console.error('Ошибка при получении групп:', error);
         res.status(500).json({ error: 'Не удалось получить список групп' });
+    }
+});
+
+app.get('/api/auditories', async (req, res) => {
+    try {
+        if (Date.now() - auditoriesCache.lastUpdated > CACHE_TTL) {
+            const response = await fetch('https://kis.vgltu.ru/list?type=Auditory');
+            const list = await response.json();
+            const auditories = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim() !== '') : [];
+            if (dbLayer && dbLayer.ensureAuditory) {
+                for (const name of auditories) {
+                    try { dbLayer.ensureAuditory(name); } catch (_) {}
+                }
+            }
+            auditoriesCache = { data: auditories, lastUpdated: Date.now() };
+        }
+        res.json(auditoriesCache.data);
+    } catch (error) {
+        console.error('Ошибка при получении аудиторий:', error);
+        res.status(500).json({ error: 'Не удалось получить список аудиторий' });
     }
 });
 
@@ -639,6 +961,11 @@ app.get('/searchTeach', async (req, res) => {
 // Роут для поиска преподавателя
 app.get('/searchTeacher', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'searchTeacher.html'));
+});
+
+// Роут для поиска расписания по аудитории
+app.get('/searchAuditory', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'searchAuditory.html'));
 });
 
 // Роут для поиска расписания группы

@@ -19,11 +19,33 @@ CREATE TABLE IF NOT EXISTS classrooms (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE IF NOT EXISTS auditories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE IF NOT EXISTS subjects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- Request stats (server-side analytics; created before schedule_slots/schedule_meta for FK)
+CREATE TABLE IF NOT EXISTS request_stats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip TEXT,
+  user_agent TEXT,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+  entity_key TEXT NOT NULL,
+  requested_at INTEGER NOT NULL,
+  processing_time_ms INTEGER NOT NULL,
+  response_type TEXT,
+  source TEXT NOT NULL DEFAULT 'cache' CHECK (source IN ('cache', 'db', 'source'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at);
+CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key);
 
 -- Schedule slots: one row per lesson occurrence (denormalized per group for simple queries)
 CREATE TABLE IF NOT EXISTS schedule_slots (
@@ -35,38 +57,27 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
   teacher_id INTEGER REFERENCES teachers(id),
   subject_id INTEGER REFERENCES subjects(id),
   classroom_id INTEGER REFERENCES classrooms(id),
+  auditory_id INTEGER REFERENCES auditories(id),
   lesson_type TEXT,
   subgroup TEXT,
+  request_stats_id INTEGER REFERENCES request_stats(id),
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_group_date ON schedule_slots(group_id, date);
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_teacher_date ON schedule_slots(teacher_id, date);
+CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date);
 
 -- Meta: "we already fetched this entity+date" and "no lessons" marker
 CREATE TABLE IF NOT EXISTS schedule_meta (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher')),
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
   entity_key TEXT NOT NULL,
   date TEXT NOT NULL,
   no_lessons INTEGER NOT NULL DEFAULT 0,
+  request_stats_id INTEGER REFERENCES request_stats(id),
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(entity_type, entity_key, date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_meta_lookup ON schedule_meta(entity_type, entity_key, date);
-
--- Request stats (server-side analytics; not exposed to clients)
-CREATE TABLE IF NOT EXISTS request_stats (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ip TEXT,
-  user_agent TEXT,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher')),
-  entity_key TEXT NOT NULL,
-  requested_at INTEGER NOT NULL,
-  processing_time_ms INTEGER NOT NULL,
-  response_type TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at);
-CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key);

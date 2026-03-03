@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7131c0">
+    <title>Расписание по аудитории</title>
+    <link rel="stylesheet" href="stylesheet.css">
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        .results-container { margin-top: 20px; padding: 20px; background: var(--border-light); border-radius: 8px; border: 1px solid var(--border); }
+        .lesson-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 10px; }
+        .lesson-time { font-weight: bold; color: var(--primary); font-size: 18px; }
+        .lesson-details { margin-top: 8px; color: var(--text); }
+        .lesson-room { background: var(--secondary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-right: 10px; }
+        .lesson-group { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; }
+        .no-lessons { text-align: center; color: var(--text-light); font-style: italic; padding: 20px; }
+        .auditory-info { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 15px; text-align: center; }
+        .auditory-name { font-size: 20px; font-weight: bold; color: var(--primary); }
+        .search-date { color: var(--text-light); font-size: 14px; }
+    </style>
+</head>
+
+<body>
+    <div class="theme-toggle">
+        <button id="theme-toggle" class="theme-toggle-button" title="Переключить тему">🌙</button>
+    </div>
+
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <a href="/gui" class="button" style="display: inline-block; text-decoration: none; background: var(--text-light);">← Назад к генератору</a>
+        </div>
+
+        <h1>Расписание по аудитории</h1>
+        <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">Узнайте, какие занятия проходят в выбранной аудитории</p>
+
+        <div class="input-group">
+            <input type="text" id="auditory" class="input-field" placeholder=" ">
+            <button id="clear-auditory" class="button secondary small-button">×</button>
+            <label class="input-label">Аудитория</label>
+            <ul id="auditory-list" class="dropdown"></ul>
+        </div>
+
+        <div class="input-group">
+            <input type="date" id="date" class="input-field" placeholder=" ">
+            <label class="input-label">Дата</label>
+        </div>
+
+        <div class="checkbox-container">
+            <input type="checkbox" id="weekParsing" class="checkbox">
+            <label for="weekParsing">Получить данные на неделю</label>
+        </div>
+
+        <button id="search-auditory" class="button">Показать расписание</button>
+
+        <div id="results" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const themeToggle = document.getElementById('theme-toggle');
+            const body = document.body;
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            body.setAttribute('data-theme', savedTheme);
+            themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            themeToggle.addEventListener('click', function () {
+                const newTheme = body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                body.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            });
+
+            const auditoryInput = document.getElementById('auditory');
+            const auditoryList = document.getElementById('auditory-list');
+            const dateInput = document.getElementById('date');
+            const weekParsingCheckbox = document.getElementById('weekParsing');
+            const clearButton = document.getElementById('clear-auditory');
+            const searchButton = document.getElementById('search-auditory');
+            const resultsDiv = document.getElementById('results');
+
+            let allAuditories = [];
+            const today = new Date();
+            dateInput.valueAsDate = today;
+
+            clearButton.addEventListener('click', function (e) {
+                e.preventDefault();
+                auditoryInput.value = '';
+                auditoryList.innerHTML = '';
+                resultsDiv.style.display = 'none';
+            });
+
+            auditoryInput.addEventListener('input', updateDropdown);
+            searchButton.addEventListener('click', searchAuditory);
+
+            async function fetchAuditories() {
+                try {
+                    const response = await fetch('/api/auditories');
+                    if (!response.ok) throw new Error('HTTP error');
+                    allAuditories = await response.json();
+                    updateDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки аудиторий:', error);
+                }
+            }
+
+            function updateDropdown() {
+                const value = auditoryInput.value.toLowerCase();
+                auditoryList.innerHTML = '';
+                if (!value) return;
+                const filtered = allAuditories.filter(a => a.toLowerCase().includes(value)).slice(0, 10);
+                filtered.forEach(a => {
+                    const li = document.createElement('li');
+                    li.textContent = a;
+                    li.classList.add('dropdown-item');
+                    li.addEventListener('click', () => {
+                        auditoryInput.value = a;
+                        auditoryList.innerHTML = '';
+                    });
+                    auditoryList.appendChild(li);
+                });
+            }
+
+            async function searchAuditory() {
+                const auditory = auditoryInput.value.trim();
+                const date = dateInput.value;
+                const weekParsing = weekParsingCheckbox.checked;
+
+                if (!auditory) {
+                    alert('Пожалуйста, выберите аудиторию');
+                    return;
+                }
+
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div class="loading">Загрузка...</div>';
+
+                try {
+                    const apiType = weekParsing ? 'json-week' : 'json';
+                    let url = `/gen_auditory?auditory=${encodeURIComponent(auditory)}&type=${apiType}`;
+                    if (date) url += `&date=${date}`;
+
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    if (!response.ok) throw new Error(data.error || 'Ошибка при загрузке расписания');
+
+                    displayResults(data, auditory, date, weekParsing);
+                } catch (error) {
+                    console.error('Ошибка:', error);
+                    resultsDiv.innerHTML = `<div class="error"><strong>Ошибка:</strong> ${error.message}</div>`;
+                }
+            }
+
+            function displayResults(data, auditory, searchDate, weekParsing) {
+                let html = `
+                    <div class="results-container">
+                        <div class="auditory-info">
+                            <div class="auditory-name">${auditory}</div>
+                            <div class="search-date">${weekParsing ? 'Расписание на неделю' : (searchDate || 'Сегодня')}</div>
+                        </div>
+                `;
+
+                const targetDate = searchDate || new Date().toISOString().split('T')[0];
+
+                if (weekParsing) {
+                    const dates = Object.keys(data).sort();
+                    dates.forEach(dateKey => {
+                        const dayData = data[dateKey];
+                        if (dayData && dayData.lessons) {
+                            const activeLessons = dayData.lessons.filter(l => l.time && l.time.includes('-') && !l.status);
+                            if (activeLessons.length > 0) {
+                                html += `<div style="margin: 20px 0;"><h3 style="color: var(--primary); margin-bottom: 10px;">${dayData.date} (${dayData.dayOfWeek})</h3>`;
+                                activeLessons.forEach(lesson => {
+                                    html += `
+                                        <div class="lesson-card">
+                                            <div class="lesson-time">${lesson.time || 'N/A'}</div>
+                                            <div class="lesson-details">
+                                                <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
+                                                ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
+                                                ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
+                                                ${lesson.teacher ? ` <small>${lesson.teacher}</small>` : ''}
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                                html += '</div>';
+                            }
+                        }
+                    });
+                } else {
+                    const dayData = data[targetDate] || (Object.keys(data).length ? data[Object.keys(data)[0]] : null);
+                    if (!dayData || !dayData.lessons || dayData.lessons.length === 0) {
+                        html += '<div class="no-lessons">В этой аудитории нет занятий в выбранный день</div>';
+                    } else {
+                        const activeLessons = dayData.lessons.filter(l => l.time && l.time.includes('-') && !l.status);
+                        activeLessons.forEach(lesson => {
+                            html += `
+                                <div class="lesson-card">
+                                    <div class="lesson-time">${lesson.time || 'N/A'}</div>
+                                    <div class="lesson-details">
+                                        <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
+                                        ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
+                                        ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
+                                        ${lesson.teacher ? ` <small>${lesson.teacher}</small>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                }
+
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+            }
+
+            fetchAuditories();
+        });
+    </script>
+</body>
+
+</html>
