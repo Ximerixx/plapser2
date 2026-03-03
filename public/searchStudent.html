@@ -588,7 +588,7 @@
                                             <div class="lesson-details">
                                                 <span class="lesson-subject">${lesson.name}</span>
                                                 ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
-                                                <span class="lesson-room">${lesson.classroom}</span>
+                                                <span class="lesson-room">${lesson.auditory || lesson.room}</span>
                                                 <span class="lesson-teacher">${lesson.teacher}</span>
                                                 ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
                                             </div>
@@ -652,7 +652,7 @@
                                     <div class="lesson-details">
                                         <span class="lesson-subject">${lesson.name}</span>
                                         ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
-                                        <span class="lesson-room">${lesson.classroom}</span>
+                                        <span class="lesson-room">${lesson.auditory || lesson.room}</span>
                                         <span class="lesson-teacher">${lesson.teacher}</span>
                                         ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
                                     </div>

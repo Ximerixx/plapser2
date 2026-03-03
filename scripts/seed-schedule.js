@@ -4,7 +4,12 @@
 /**
  * Seed script: preload schedule data from KIS into the local SQLite DB.
  * Run from project root: node scripts/seed-schedule.js
- * Optional env: SEED_DAYS=14 (default 14), SEED_TEACHERS=1, SEED_AUDITORIES=1 to include teachers/auditories.
+ * Optional env:
+ *   SEED_DAYS=14 (default 14)
+ *   SEED_GROUPS=1 (default) | 0 to skip groups
+ *   SEED_TEACHERS=1 to include teachers
+ *   SEED_AUDITORIES=1 to include auditories
+ * Example (teachers + auditories only): SEED_GROUPS=0 SEED_TEACHERS=1 SEED_AUDITORIES=1 node scripts/seed-schedule.js
  */
 
 const path = require('path');
@@ -17,6 +22,7 @@ const db = require(dbPath);
 
 const DELAY_MS = 10;
 const SEED_DAYS = parseInt(process.env.SEED_DAYS || '14', 10);
+const SEED_GROUPS = process.env.SEED_GROUPS !== '0';
 const SEED_TEACHERS = process.env.SEED_TEACHERS === '1' || process.env.SEED_TEACHERS === 'true';
 const SEED_AUDITORIES = process.env.SEED_AUDITORIES === '1' || process.env.SEED_AUDITORIES === 'true';
 
@@ -49,9 +55,14 @@ async function fetchAuditories() {
 }
 
 async function main() {
-    console.log('Seed: fetching group list...');
-    const groups = await fetchGroups();
-    console.log(`Seed: ${groups.length} groups`);
+    let groups = [];
+    if (SEED_GROUPS) {
+        console.log('Seed: fetching group list...');
+        groups = await fetchGroups();
+        console.log(`Seed: ${groups.length} groups`);
+    } else {
+        console.log('Seed: skipping groups (SEED_GROUPS=0)');
+    }
 
     let teachers = [];
     if (SEED_TEACHERS) {
@@ -77,17 +88,19 @@ async function main() {
         const baseDate = getDateOffset(w * 7, today);
         console.log(`\nSeed: week starting ${baseDate}`);
 
-        for (const group of groups) {
-            try {
-                const data = await parseStudent(baseDate, group, null);
-                if (data && Object.keys(data).length > 0) {
-                    db.saveStudentScheduleToDb(group, baseDate, data);
-                    console.log(`  group ${group} ok`);
+        if (SEED_GROUPS) {
+            for (const group of groups) {
+                try {
+                    const data = await parseStudent(baseDate, group, null);
+                    if (data && Object.keys(data).length > 0) {
+                        db.saveStudentScheduleToDb(group, baseDate, data);
+                        console.log(`  group ${group} ok`);
+                    }
+                } catch (e) {
+                    console.warn(`  group ${group} error:`, e.message);
                 }
-            } catch (e) {
-                console.warn(`  group ${group} error:`, e.message);
+                await sleep(DELAY_MS);
             }
-            await sleep(DELAY_MS);
         }
 
         if (SEED_TEACHERS) {

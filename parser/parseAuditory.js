@@ -109,6 +109,7 @@ async function parseAuditory(date, auditory) {
                     name = parts.slice(1).join('.').trim();
                 }
 
+                const auditoryName = room || auditory;
                 result[dateKey].lessons.push({
                     time,
                     type,
@@ -117,8 +118,8 @@ async function parseAuditory(date, auditory) {
                     subgroup: subgroup || '',
                     groups: groups.length > 0 ? groups : [auditory],
                     group: groups.length > 0 ? groups.join(', ') : '',
-                    classroom: room || auditory,
-                    room: room || auditory,
+                    auditory: auditoryName,
+                    room: auditoryName,
                     teacher
                 });
             }

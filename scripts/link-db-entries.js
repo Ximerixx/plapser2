@@ -34,12 +34,12 @@ function main() {
     `).run();
     fixed += nullSubject.changes;
 
-    const nullClassroom = db.prepare(`
-        UPDATE schedule_slots SET classroom_id = NULL
-        WHERE classroom_id IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM classrooms WHERE id = schedule_slots.classroom_id)
+    const nullAuditory = db.prepare(`
+        UPDATE schedule_slots SET auditory_id = NULL
+        WHERE auditory_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM auditories WHERE id = schedule_slots.auditory_id)
     `).run();
-    fixed += nullClassroom.changes;
+    fixed += nullAuditory.changes;
 
     // 2. Orphaned group_id: cannot fix (we don't have group name in slot), must delete
     const badGroup = db.prepare(`
@@ -62,10 +62,10 @@ function main() {
 
     if (fixed > 0 || deleted > 0) {
         console.log('Link repair:');
-        if (fixed > 0) console.log(`  Set ${fixed} broken nullable FK(s) to NULL (teacher/subject/classroom).`);
+        if (fixed > 0) console.log(`  Set ${fixed} broken nullable FK(s) to NULL (teacher/subject/auditory).`);
         if (deleted > 0) console.log(`  Deleted ${deleted} slot(s) with invalid group_id.`);
     } else {
-        console.log('All links valid: every schedule_slot references existing groups, teachers, subjects, and classrooms.');
+        console.log('All links valid: every schedule_slot references existing groups, teachers, subjects, and auditories.');
     }
     if (fkCheck.length > 0) {
         console.error('PRAGMA foreign_key_check still reports:', fkCheck);

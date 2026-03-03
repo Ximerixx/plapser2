@@ -107,6 +107,7 @@ async function parseTeacher(date, teacher) {
                     subject,
                     group,
                     groups: groups.length > 0 ? groups : undefined,
+                    auditory: room,
                     room,
                     subgroup: subgroup || null
                 });
