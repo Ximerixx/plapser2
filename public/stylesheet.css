@@ -1,0 +1,314 @@
+:root {
+    --primary: #7131c0;
+    --primary-hover: #3b147e;
+    --secondary: #0d7c71;
+    --error: #b00020;
+    --text: #212121;
+    --text-light: #666;
+    --background: #fafafa;
+    --white: #fff;
+    --surface: #fff;
+    --border: #ccc;
+    --border-light: #e9ecef;
+    --shadow: rgba(0, 0, 0, 0.08);
+}
+
+/* Dark theme variables */
+[data-theme="dark"] {
+    --primary: #742dca;
+    --primary-hover: #3b147e;
+    --secondary: #307a73;
+    --error: #cf6679;
+    --text: #ffffff;
+    --text-light: #b0b0b0;
+    --background: #121212;
+    --white: #1e1e1e;
+    --surface: #2d2d2d;
+    --border: #404040;
+    --border-light: #333333;
+    --shadow: rgba(0, 0, 0, 0.3);
+}
+
+* {
+    box-sizing: border-box;
+    font-family: 'Roboto', Arial, sans-serif;
+}
+
+body {
+    margin: 0;
+    padding: 24px;
+    background: var(--background);
+    color: var(--text);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.container {
+    max-width: 600px;
+    margin: auto;
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 4px 10px var(--shadow);
+    padding: 32px 24px;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+h1 {
+    margin-top: 0;
+    font-size: 28px;
+    color: var(--primary);
+    text-align: center;
+}
+
+.input-group {
+    position: relative;
+    margin-bottom: 24px;
+}
+
+.input-field {
+    width: 100%;
+    height: 48px;
+    padding: 0 12px;
+    font-size: 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    transition: border-color 0.2s, background-color 0.3s ease, color 0.3s ease;
+}
+
+.input-field:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.input-label {
+    position: absolute;
+    top: -10px;
+    left: 12px;
+    background: var(--surface);
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--text-light);
+    transition: background-color 0.3s ease;
+}
+
+.dropdown {
+    position: absolute;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    max-height: 200px;
+    overflow-y: auto;
+    width: 100%;
+    z-index: 10;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: var(--text);
+    transition: background-color 0.2s ease;
+}
+
+.dropdown-item:hover {
+    background-color: var(--border-light);
+}
+
+.type-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.type-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.help-button {
+    width: 20px;
+    height: 20px;
+    font-size: 14px;
+    background: var(--primary);
+    color: var(--white);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.help-tooltip {
+    position: absolute;
+    top: 28px;
+    left: 0;
+    width: 260px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px var(--shadow);
+    padding: 12px;
+    font-size: 14px;
+    color: var(--text);
+    display: none;
+    z-index: 100;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+    pointer-events: none;
+}
+
+.help-tooltip.show {
+    display: block;
+    pointer-events: auto;
+}
+
+.help-button:hover {
+    background: var(--primary-hover);
+}
+
+.button {
+    background: var(--primary);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.button:hover {
+    background: var(--primary-hover);
+}
+
+.link-container {
+    display: flex;
+    margin-top: 20px;
+    flex-direction: column;
+}
+
+.link-field {
+    flex: 1;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+    background: var(--surface);
+    color: var(--text);
+    transition: border-color 0.3s ease, background-color 0.3s ease, color 0.3s ease;
+}
+
+.copy-button {
+    border-radius: 8px;
+}
+
+.row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.row>* {
+    flex: 1;
+}
+
+.mode-toggle {
+    margin-bottom: 20px;
+}
+
+.mode-toggle label {
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.input-with-button {
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.input-with-button .input-field {
+    flex: 1;
+    padding-right: 36px;
+    /* отступ для кнопки */
+}
+
+.small-button {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 28px;
+    width: 28px;
+    padding: 0;
+    font-size: 16px;
+    background-color: transparent;
+    color: var(--primary-color);
+    border: none;
+    cursor: pointer;
+    outline: none;
+}
+
+.small-button:hover {
+    background-color: rgba(98, 0, 238, 0.1);
+    border-radius: 50%;
+}
+
+/* Theme Toggle Styles */
+.theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+.theme-toggle-button {
+    background: var(--primary);
+    color: var(--white);
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--shadow);
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.theme-toggle-button:hover {
+    background: var(--primary-hover);
+    transform: scale(1.1);
+}
+
+.theme-toggle-button:active {
+    transform: scale(0.95);
+}
+
+/* Dark theme specific adjustments */
+[data-theme="dark"] .small-button:hover {
+    background-color: rgba(187, 134, 252, 0.1);
+}
+
+[data-theme="dark"] .theme-toggle-button:hover {
+    background: var(--primary-hover);
+}
