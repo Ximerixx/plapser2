@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS request_stats (
   requested_at INTEGER NOT NULL,
   processing_time_ms INTEGER NOT NULL,
   response_type TEXT,
-  source TEXT NOT NULL DEFAULT 'cache' CHECK (source IN ('cache', 'db', 'source'))
+  source TEXT NOT NULL DEFAULT 'cache' CHECK (source IN ('cache', 'db', 'source', 'source_asked'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at);
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
 
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_group_date ON schedule_slots(group_id, date);
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_teacher_date ON schedule_slots(teacher_id, date);
-CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date);
+-- idx_schedule_slots_auditory_date created in migration (column may not exist in existing DBs)
 
 -- Meta: "we already fetched this entity+date" and "no lessons" marker
 CREATE TABLE IF NOT EXISTS schedule_meta (
