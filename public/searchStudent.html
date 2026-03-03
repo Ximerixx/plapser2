@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7131c0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Plapser">
+    <title>Поиск расписания группы</title>
+    <link rel="stylesheet" href="stylesheet.css">
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        .results-container {
+            margin-top: 20px;
+            padding: 20px;
+            background: var(--border-light);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .lesson-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px var(--shadow);
+            transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .lesson-time {
+            font-weight: bold;
+            color: var(--primary);
+            font-size: 18px;
+        }
+        
+        .lesson-details {
+            margin-top: 8px;
+            color: var(--text);
+            transition: color 0.3s ease;
+        }
+        
+        .lesson-room {
+            background: var(--secondary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .lesson-subject {
+            background: var(--primary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .lesson-teacher {
+            background: var(--text-light);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+        }
+        
+        .no-lessons {
+            text-align: center;
+            color: var(--text-light);
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        .group-info {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: center;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .group-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        
+        .search-date {
+            color: var(--text-light);
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-light);
+            transition: color 0.3s ease;
+        }
+        
+        .error {
+            background: var(--error);
+            color: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--error);
+            transition: background-color 0.3s ease;
+        }
+        
+        .offline-indicator {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: var(--error);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px var(--shadow);
+            z-index: 999;
+            display: none;
+            font-size: 14px;
+            max-width: 250px;
+        }
+        
+        .offline-indicator.show {
+            display: block;
+        }
+        
+        .cache-warning {
+            background: #ff9800;
+            color: white;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            border-left: 4px solid #f57c00;
+        }
+        
+        .cache-warning strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .recent-groups {
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .recent-groups-title {
+            font-size: 14px;
+            color: var(--text-light);
+            margin-bottom: 10px;
+            transition: color 0.3s ease;
+        }
+        
+        .recent-groups-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        .update-time {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-top: 8px;
+            text-align: center;
+            transition: color 0.3s ease;
+        }
+        
+        .update-time.stale {
+            color: var(--error);
+        }
+        
+        .update-progress {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 8px 15px;
+            font-size: 11px;
+            color: var(--text-light);
+            z-index: 1000;
+            display: none;
+            transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+        }
+        
+        .update-progress.show {
+            display: block;
+        }
+        
+        .recent-group-btn {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .recent-group-btn:hover {
+            background: var(--primary);
+            color: var(--white);
+            border-color: var(--primary);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Theme Toggle Button -->
+    <div class="theme-toggle">
+        <button id="theme-toggle" class="theme-toggle-button" title="Переключить тему">
+            🌙
+        </button>
+    </div>
+    
+    <!-- Offline Indicator -->
+    <div id="offline-indicator" class="offline-indicator">
+        Нет подключения к интернету
+    </div>
+
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <a href="/gui" class="button" style="display: inline-block; text-decoration: none; background: var(--text-light);">
+                ← Назад к генератору
+            </a>
+        </div>
+        
+        <h1>Поиск расписания группы</h1>
+        <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
+            Найдите расписание занятий для группы
+        </p>
+
+        <div class="input-group">
+            <input type="text" id="group" class="input-field" placeholder=" ">
+            <button id="clear-group" class="button secondary small-button">×</button>
+            <label class="input-label">Группа</label>
+            <ul id="group-list" class="dropdown"></ul>
+        </div>
+
+        <div class="row">
+            <div class="input-group">
+                <input type="number" id="subgroup" class="input-field" placeholder=" " min="1" max="2">
+                <label class="input-label">Подгруппа (необязательно)</label>
+            </div>
+
+            <div class="checkbox-container">
+                <input type="checkbox" id="tomorrow" class="checkbox">
+                <label for="tomorrow">На завтра</label>
+            </div>
+        </div>
+
+        <div class="checkbox-container">
+            <input type="checkbox" id="weekSchedule" class="checkbox">
+            <label for="weekSchedule">Расписание на неделю</label>
+        </div>
+
+        <div class="input-group">
+            <input type="date" id="date" class="input-field" placeholder=" ">
+            <label class="input-label">Дата (необязательно)</label>
+        </div>
+
+        <button id="search-group" class="button">Найти расписание</button>
+        <div id="update-time" class="update-time" style="display: none;"></div>
+
+        <div id="recent-groups" class="recent-groups" style="display: none;">
+            <div class="recent-groups-title">Последние поиски:</div>
+            <div id="recent-groups-grid" class="recent-groups-grid">
+                <!-- Recent group buttons will be populated here -->
+            </div>
+        </div>
+
+        <div id="results" style="display: none;">
+            <!-- Results will be populated here -->
+        </div>
+        
+        <div id="update-progress" class="update-progress"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const groupInput = document.getElementById('group');
+            const groupList = document.getElementById('group-list');
+            const subgroupInput = document.getElementById('subgroup');
+            const dateInput = document.getElementById('date');
+            const tomorrowCheckbox = document.getElementById('tomorrow');
+            const weekScheduleCheckbox = document.getElementById('weekSchedule');
+            const searchButton = document.getElementById('search-group');
+            const resultsDiv = document.getElementById('results');
+            const clearButton = document.getElementById('clear-group');
+
+            let allGroups = [];
+            const recentGroupsDiv = document.getElementById('recent-groups');
+            const recentGroupsGrid = document.getElementById('recent-groups-grid');
+
+            const today = new Date();
+            dateInput.valueAsDate = today;
+
+            // Cookie functions
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+
+            function setCookie(name, value, days = 365) {
+                const date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                const expires = `expires=${date.toUTCString()}`;
+                document.cookie = `${name}=${value};${expires};path=/`;
+            }
+
+            function saveRecentGroup(group) {
+                if (!group || !group.trim()) return;
+                
+                const cookieValue = getCookie('recent_groups');
+                let recent = cookieValue ? JSON.parse(decodeURIComponent(cookieValue)) : [];
+                
+                // Remove if already exists
+                recent = recent.filter(g => g !== group);
+                // Add to beginning
+                recent.unshift(group);
+                // Keep only last 12
+                recent = recent.slice(0, 12);
+                
+                setCookie('recent_groups', encodeURIComponent(JSON.stringify(recent)));
+                displayRecentGroups();
+            }
+
+            function getRecentGroups() {
+                const cookieValue = getCookie('recent_groups');
+                if (!cookieValue) return [];
+                try {
+                    return JSON.parse(decodeURIComponent(cookieValue));
+                } catch (e) {
+                    return [];
+                }
+            }
+
+            function displayRecentGroups() {
+                const recent = getRecentGroups();
+                if (recent.length === 0) {
+                    recentGroupsDiv.style.display = 'none';
+                    return;
+                }
+
+                recentGroupsDiv.style.display = 'block';
+                recentGroupsGrid.innerHTML = '';
+
+                recent.forEach(group => {
+                    const btn = document.createElement('button');
+                    btn.className = 'recent-group-btn';
+                    btn.textContent = group;
+                    btn.title = group;
+                    btn.addEventListener('click', () => {
+                        groupInput.value = group;
+                        groupList.innerHTML = '';
+                        searchGroup();
+                    });
+                    recentGroupsGrid.appendChild(btn);
+                });
+            }
+
+            // Load recent groups on page load
+            displayRecentGroups();
+
+            clearButton.addEventListener('click', function (e) {
+                e.preventDefault();
+                clearGroupInput();
+            });
+
+            function clearGroupInput() {
+                groupInput.value = '';
+                groupList.innerHTML = '';
+                resultsDiv.style.display = 'none';
+            }
+
+            groupInput.addEventListener('input', updateDropdown);
+            searchButton.addEventListener('click', searchGroup);
+
+            tomorrowCheckbox.addEventListener('change', function () {
+                dateInput.disabled = this.checked;
+                if (this.checked) {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    dateInput.valueAsDate = tomorrow;
+                }
+            });
+
+            async function fetchGroups() {
+                try {
+                    const response = await fetch('/api/groups');
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    allGroups = await response.json();
+                    updateDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки групп:', error);
+                    alert('Не удалось загрузить список групп.');
+                }
+            }
+
+            function updateDropdown() {
+                const value = groupInput.value.toLowerCase();
+                groupList.innerHTML = '';
+
+                if (!value) return;
+
+                const filtered = allGroups.filter(group =>
+                    group.toLowerCase().includes(value)
+                ).slice(0, 10);
+
+                filtered.forEach(group => {
+                    const li = document.createElement('li');
+                    li.textContent = group;
+                    li.classList.add('dropdown-item');
+                    li.addEventListener('click', () => {
+                        groupInput.value = group;
+                        groupList.innerHTML = '';
+                    });
+                    groupList.appendChild(li);
+                });
+            }
+
+            async function searchGroup() {
+                const group = groupInput.value.trim();
+                const subgroup = subgroupInput.value;
+                const date = dateInput.value;
+                const tomorrow = tomorrowCheckbox.checked;
+                const weekSchedule = weekScheduleCheckbox.checked;
+
+                if (!group) {
+                    alert('Пожалуйста, выберите группу');
+                    return;
+                }
+
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div class="loading">Поиск расписания...</div>';
+
+                const requestStartTime = performance.now();
+
+                try {
+                    let url = `/gen?group=${encodeURIComponent(group)}&type=${weekSchedule ? 'json-week' : 'json'}`;
+                    
+                    if (subgroup) {
+                        url += `&subgroup=${subgroup}`;
+                    }
+
+                    if (tomorrow) {
+                        url += '&tomorrow=true';
+                    } else if (date) {
+                        url += `&date=${date}`;
+                    }
+
+                    const response = await fetch(url);
+                    const requestEndTime = performance.now();
+                    const requestDuration = requestEndTime - requestStartTime;
+
+                    // Get cache headers
+                    const cacheHit = response.headers.get('X-Cache-Hit') === 'true';
+                    const cacheAge = response.headers.get('X-Cache-Age');
+                    const cacheTTL = response.headers.get('X-Cache-TTL');
+                    const offlineCache = response.headers.get('X-Offline-Cache') === 'true';
+                    const cacheTimestamp = response.headers.get('X-Cache-Timestamp');
+
+                    // Log request details
+                    const logData = {
+                        timestamp: new Date().toISOString(),
+                        type: 'searchGroup',
+                        group: group,
+                        subgroup: subgroup || null,
+                        date: date || (tomorrow ? 'tomorrow' : 'today'),
+                        weekSchedule: weekSchedule,
+                        requestDuration: `${requestDuration.toFixed(2)}ms`,
+                        cacheHit: cacheHit,
+                        cacheAge: cacheAge ? `${cacheAge}s` : null,
+                        cacheTTL: cacheTTL ? `${cacheTTL}s` : null,
+                        offlineCache: offlineCache,
+                        statusCode: response.status,
+                        url: url
+                    };
+                    console.log('[CLIENT LOG]', JSON.stringify(logData));
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Ошибка при поиске расписания');
+                    }
+
+                    displayResults(data, group, date, tomorrow, weekSchedule, offlineCache);
+                    // Save to recent groups
+                    saveRecentGroup(group);
+                    
+                    // Show update time
+                    if (cacheTimestamp) {
+                        showUpdateTime(parseInt(cacheTimestamp));
+                    } else {
+                        showUpdateTime(Date.now());
+                    }
+
+                } catch (error) {
+                    const requestEndTime = performance.now();
+                    const requestDuration = requestEndTime - requestStartTime;
+                    
+                    console.error('[CLIENT LOG ERROR]', JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        type: 'searchGroup',
+                        group: group,
+                        error: error.message,
+                        requestDuration: `${requestDuration.toFixed(2)}ms`
+                    }));
+                    
+                    console.error('Ошибка поиска:', error);
+                    resultsDiv.innerHTML = `
+                        <div class="error">
+                            <strong>Ошибка:</strong> ${error.message}
+                        </div>
+                    `;
+                }
+            }
+
+            function displayResults(data, group, date, tomorrow, weekSchedule, offlineCache = false) {
+                let html = `
+                    <div class="results-container">
+                        ${offlineCache ? `
+                            <div class="cache-warning">
+                                <strong>⚠️ Данные из офлайн кэша</strong>
+                                Расписание было закэшировано ранее и может быть устаревшим. Обновите данные при подключении к интернету.
+                            </div>
+                        ` : ''}
+                        <div class="group-info">
+                            <div class="group-name">${group}</div>
+                            <div class="search-date">${weekSchedule ? 'Расписание на неделю' : (tomorrow ? 
+                                new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] : 
+                                (date || new Date().toISOString().split('T')[0]))}</div>
+                        </div>
+                `;
+
+                if (weekSchedule) {
+                    // Display week schedule
+                    const dates = Object.keys(data).sort();
+                    let totalLessons = 0;
+
+                    dates.forEach(dateKey => {
+                        const dayData = data[dateKey];
+                        if (dayData && dayData.lessons) {
+                            const activeLessons = dayData.lessons.filter(lesson => 
+                                lesson.time && lesson.time.includes('-') && lesson.name
+                            );
+                            
+                            if (activeLessons.length > 0) {
+                                totalLessons += activeLessons.length;
+                                html += `
+                                    <div style="margin: 20px 0;">
+                                        <h3 style="color: var(--primary); margin-bottom: 10px;">
+                                            ${dayData.date} (${dayData.dayOfWeek})
+                                        </h3>
+                                `;
+
+                                activeLessons.forEach(lesson => {
+                                    html += `
+                                        <div class="lesson-card">
+                                            <div class="lesson-time">${lesson.time}</div>
+                                            <div class="lesson-details">
+                                                <span class="lesson-subject">${lesson.name}</span>
+                                                ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
+                                                <span class="lesson-room">${lesson.classroom}</span>
+                                                <span class="lesson-teacher">${lesson.teacher}</span>
+                                                ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+
+                                html += `</div>`;
+                            }
+                        }
+                    });
+
+                    if (totalLessons === 0) {
+                        html += `
+                            <div class="no-lessons">
+                                У группы нет занятий на этой неделе
+                            </div>
+                        `;
+                    } else {
+                        html = `
+                            <div class="results-container">
+                                <div class="group-info">
+                                    <div class="group-name">${group}</div>
+                                    <div class="search-date">Расписание на неделю</div>
+                                    <div style="margin-top: 10px; font-size: 14px;">
+                                        <strong>Всего занятий: ${totalLessons}</strong>
+                                    </div>
+                                </div>
+                                ${html.split('<div class="group-info">')[1]}
+                        `;
+                    }
+                } else {
+                    // Display single day schedule
+                    const searchDate = tomorrow ? 
+                        new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] : 
+                        (date || new Date().toISOString().split('T')[0]);
+
+                    const dayLessons = data[searchDate];
+                    
+                    if (!dayLessons || !dayLessons.lessons || dayLessons.lessons.length === 0) {
+                        html += `
+                            <div class="no-lessons">
+                                У группы нет занятий в этот день
+                            </div>
+                        `;
+                    } else {
+                        const activeLessons = dayLessons.lessons.filter(lesson => 
+                            lesson.time && lesson.time.includes('-') && lesson.name
+                        );
+
+                        html += `
+                            <div style="margin-bottom: 15px; text-align: center;">
+                                <strong>Найдено занятий: ${activeLessons.length}</strong>
+                            </div>
+                        `;
+
+                        activeLessons.forEach(lesson => {
+                            html += `
+                                <div class="lesson-card">
+                                    <div class="lesson-time">${lesson.time}</div>
+                                    <div class="lesson-details">
+                                        <span class="lesson-subject">${lesson.name}</span>
+                                        ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
+                                        <span class="lesson-room">${lesson.classroom}</span>
+                                        <span class="lesson-teacher">${lesson.teacher}</span>
+                                        ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                }
+
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+            }
+
+            // Load groups on page load
+            fetchGroups();
+
+            // Offline/Online detection
+            const offlineIndicator = document.getElementById('offline-indicator');
+            
+            function updateOfflineStatus() {
+                if (!navigator.onLine) {
+                    offlineIndicator.classList.add('show');
+                } else {
+                    offlineIndicator.classList.remove('show');
+                }
+            }
+
+            window.addEventListener('online', updateOfflineStatus);
+            window.addEventListener('offline', updateOfflineStatus);
+            updateOfflineStatus();
+
+            // Register Service Worker
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then((registration) => {
+                        console.log('[Service Worker] Registered:', registration.scope);
+                        
+                        // Кэшируем текущую страницу и другие HTML страницы при регистрации
+                        if (registration.active || registration.installing) {
+                            const pagesToCache = [
+                                window.location.href,
+                                '/gui',
+                                '/searchStudent',
+                                '/searchTeacher'
+                            ];
+                            
+                            pagesToCache.forEach(pageUrl => {
+                                fetch(pageUrl, { credentials: 'same-origin' })
+                                    .then(response => {
+                                        if (response.ok) {
+                                            return caches.open('plapser-static-v1').then(cache => {
+                                                return cache.put(pageUrl, response);
+                                            });
+                                        }
+                                    })
+                                    .catch(err => console.log(`[SW] Failed to cache ${pageUrl}:`, err));
+                            });
+                        }
+                        
+                        // Check for updates
+                        registration.addEventListener('updatefound', () => {
+                            console.log('[Service Worker] Update found');
+                        });
+                    })
+                    .catch((error) => {
+                        console.error('[Service Worker] Registration failed:', error);
+                    });
+            }
+
+            // Show install prompt if available
+            let deferredPrompt;
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                console.log('[PWA] Install prompt available');
+                
+                // Можно показать свою кнопку установки
+                // const installButton = document.createElement('button');
+                // installButton.textContent = 'Установить приложение';
+                // installButton.addEventListener('click', () => {
+                //     deferredPrompt.prompt();
+                //     deferredPrompt.userChoice.then((choiceResult) => {
+                //         if (choiceResult.outcome === 'accepted') {
+                //             console.log('User accepted install');
+                //         }
+                //         deferredPrompt = null;
+                //     });
+                // });
+            });
+
+            window.addEventListener('appinstalled', () => {
+                console.log('[PWA] App installed');
+                deferredPrompt = null;
+            });
+
+            // Update time display
+            const updateTimeDiv = document.getElementById('update-time');
+            
+            function showUpdateTime(timestamp) {
+                if (!updateTimeDiv) return;
+                
+                const now = Date.now();
+                const diff = now - timestamp;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(minutes / 60);
+                
+                let timeText;
+                if (minutes < 1) {
+                    timeText = 'сейчас';
+                } else if (minutes < 60) {
+                    timeText = `${minutes} минут назад`;
+                } else if (hours < 24) {
+                    timeText = `${hours} часов назад`;
+                } else {
+                    const date = new Date(timestamp);
+                    timeText = `Обновлено ${date.toLocaleString('ru-RU', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })}`;
+                }
+                
+                updateTimeDiv.textContent = timeText;
+                updateTimeDiv.style.display = 'block';
+                
+                // Красный цвет если больше 2 часов
+                if (hours >= 2) {
+                    updateTimeDiv.classList.add('stale');
+                } else {
+                    updateTimeDiv.classList.remove('stale');
+                }
+            }
+
+            // Update progress display
+            const updateProgressDiv = document.getElementById('update-progress');
+            let updateProgress = {
+                current: null,
+                startTime: null,
+                total: 0,
+                completed: 0
+            };
+
+            function showUpdateProgress(item, itemType, total) {
+                if (!updateProgressDiv) return;
+                
+                updateProgress.current = item;
+                updateProgress.total = total;
+                if (!updateProgress.startTime) {
+                    updateProgress.startTime = Date.now();
+                }
+                
+                updateProgressDiv.classList.add('show');
+                updateProgressDiv.textContent = `Обновление: ${itemType === 'group' ? 'группа' : 'преподаватель'} ${item}...`;
+            }
+
+            function hideUpdateProgress() {
+                if (!updateProgressDiv) return;
+                
+                if (updateProgress.startTime) {
+                    const duration = ((Date.now() - updateProgress.startTime) / 1000).toFixed(1);
+                    updateProgressDiv.textContent = `Обновление завершено за ${duration}с`;
+                    setTimeout(() => {
+                        updateProgressDiv.classList.remove('show');
+                        updateProgress.startTime = null;
+                        updateProgress.current = null;
+                        updateProgress.total = 0;
+                        updateProgress.completed = 0;
+                    }, 2000);
+                } else {
+                    updateProgressDiv.classList.remove('show');
+                }
+            }
+
+            // Background update on app open
+            async function startBackgroundUpdate() {
+                if (!navigator.onLine) {
+                    console.log('[Client] Background update skipped - offline');
+                    return;
+                }
+
+                const recentGroups = getRecentGroups();
+                const recentTeachers = [];
+                
+                if (recentGroups.length === 0 && recentTeachers.length === 0) {
+                    return;
+                }
+
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({
+                        type: 'START_BACKGROUND_UPDATE',
+                        recentGroups: recentGroups,
+                        recentTeachers: recentTeachers
+                    });
+                }
+            }
+
+            // Listen for messages from Service Worker
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                    if (event.data.type === 'CACHE_UPDATED') {
+                        const { item, itemType, total } = event.data;
+                        showUpdateProgress(item, itemType, total || 12);
+                    } else if (event.data.type === 'CACHE_UPDATE_COMPLETE') {
+                        hideUpdateProgress();
+                    } else if (event.data.type === 'GET_RECENT_ITEMS') {
+                        // Отправляем недавние элементы в Service Worker
+                        if (navigator.serviceWorker.controller) {
+                            navigator.serviceWorker.controller.postMessage({
+                                type: 'GET_RECENT_ITEMS_RESPONSE',
+                                recentGroups: getRecentGroups(),
+                                recentTeachers: []
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Start background update on page load
+            startBackgroundUpdate();
+
+            // Update on online
+            window.addEventListener('online', () => {
+                console.log('[Client] Online - starting background update');
+                startBackgroundUpdate();
+            });
+        });
+
+        // Theme functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const themeToggle = document.getElementById('theme-toggle');
+            const body = document.body;
+            
+            // Load saved theme or default to light
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            body.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+            
+            // Theme toggle event listener
+            themeToggle.addEventListener('click', function() {
+                const currentTheme = body.getAttribute('data-theme');
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                
+                body.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                updateThemeIcon(newTheme);
+            });
+            
+            function updateThemeIcon(theme) {
+                themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+                themeToggle.title = theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на темную тему';
+            }
+        });
+    </script>
+</body>
+
+</html>
