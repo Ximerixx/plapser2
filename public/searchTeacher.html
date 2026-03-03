@@ -258,6 +258,7 @@
         </div>
 
         <button id="search-teacher" class="button">Найти преподавателя</button>
+        <button id="refresh-from-source" class="button secondary" title="Запросить актуальные данные с сайта и обновить кэш и базу">Обновить из источника</button>
         <div id="update-time" class="update-time" style="display: none;"></div>
 
         <div id="recent-teachers" class="recent-teachers" style="display: none;">
@@ -351,7 +352,7 @@
                     btn.addEventListener('click', () => {
                         teacherInput.value = teacher;
                         teacherList.innerHTML = '';
-                        searchTeacher();
+                        searchTeacher(false);
                     });
                     recentTeachersGrid.appendChild(btn);
                 });
@@ -373,7 +374,8 @@
 
             teacherInput.addEventListener('input', updateDropdown);
 
-            searchButton.addEventListener('click', searchTeacher);
+            searchButton.addEventListener('click', () => searchTeacher(false));
+            document.getElementById('refresh-from-source').addEventListener('click', () => searchTeacher(true));
 
             async function fetchTeachers() {
                 try {
@@ -409,7 +411,7 @@
                 });
             }
 
-            async function searchTeacher() {
+            async function searchTeacher(forceRefresh = false) {
                 const teacher = teacherInput.value.trim();
                 const date = dateInput.value;
                 const weekParsing = weekParsingCheckbox.checked;
@@ -420,7 +422,7 @@
                 }
 
                 resultsDiv.style.display = 'block';
-                resultsDiv.innerHTML = '<div class="loading">Поиск...</div>';
+                resultsDiv.innerHTML = '<div class="loading">' + (forceRefresh ? 'Запрос данных с источника...' : 'Поиск...') + '</div>';
 
                 const requestStartTime = performance.now();
 
@@ -431,6 +433,10 @@
                     
                     if (date) {
                         url += `&date=${date}`;
+                    }
+
+                    if (forceRefresh) {
+                        url += '&refresh=1';
                     }
 
                     const response = await fetch(url);

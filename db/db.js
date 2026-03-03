@@ -40,6 +40,32 @@ function runMigrations(d) {
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date)');
     } catch (_) {}
     migrateEntityTypeToIncludeAuditory(d);
+    migrateSourceAsked(d);
+}
+
+function migrateSourceAsked(d) {
+    const r = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='request_stats'").get();
+    if (r && r.sql && r.sql.includes("'source_asked'")) return;
+    d.pragma('foreign_keys = OFF');
+    d.exec(`
+        CREATE TABLE request_stats_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT,
+            user_agent TEXT,
+            entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+            entity_key TEXT NOT NULL,
+            requested_at INTEGER NOT NULL,
+            processing_time_ms INTEGER NOT NULL,
+            response_type TEXT,
+            source TEXT NOT NULL DEFAULT 'cache' CHECK (source IN ('cache', 'db', 'source', 'source_asked'))
+        );
+        INSERT INTO request_stats_new SELECT id, ip, user_agent, entity_type, entity_key, requested_at, processing_time_ms, response_type, source FROM request_stats;
+        DROP TABLE request_stats;
+        ALTER TABLE request_stats_new RENAME TO request_stats;
+    `);
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at)'); } catch (_) {}
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key)'); } catch (_) {}
+    d.pragma('foreign_keys = ON');
 }
 
 function migrateEntityTypeToIncludeAuditory(d) {
@@ -175,7 +201,7 @@ function insertScheduleMeta(entityType, entityKey, date, noLessons, requestStats
 function insertRequestStats({ ip, userAgent, entityType, entityKey, requestedAt, processingTimeMs, type: responseType, source }) {
     const d = getDb();
     const requestedAtSec = requestedAt != null ? Math.floor(Number(requestedAt) / 1000) : Math.floor(Date.now() / 1000);
-    const src = source === 'cache' || source === 'db' || source === 'source' ? source : 'cache';
+    const src = (source === 'cache' || source === 'db' || source === 'source' || source === 'source_asked') ? source : 'cache';
     const stmt = d.prepare(`
         INSERT INTO request_stats (ip, user_agent, entity_type, entity_key, requested_at, processing_time_ms, response_type, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)

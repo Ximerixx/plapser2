@@ -121,7 +121,7 @@ app.use(cors({
 }));
 
 app.get("/gen", async (req, res) => {
-    const { date, group, type: rawType, tomorrow, subgroup = null } = req.query;
+    const { date, group, type: rawType, tomorrow, subgroup = null, refresh } = req.query;
 
 
     //проверка на существование "type " в запросе
@@ -148,8 +148,61 @@ app.get("/gen", async (req, res) => {
         baseDate = getDateOffset(0); // ну, просто потому чтобы не падало, пусть лучше сегодня будет чем 500
     }
 
+    const forceRefresh = refresh === '1' || refresh === 'true';
+
     try {
         const startTime = Date.now();
+        if (forceRefresh) {
+            const { data: fullData } = await fetchStudentFromSourceAndSave(group, baseDate, subgroup, req, startTime, type);
+            setCacheHeaders(res, null);
+            if (type === "json" || type === "json-week") {
+                if (type === "json-week") return res.json(fullData || {});
+                const result = {};
+                if (fullData && fullData[baseDate]) result[baseDate] = fullData[baseDate];
+                return res.json(result);
+            }
+            const calendar = ical({ name: `Расписание для ${group}`, timezone: TIMEZONE });
+            if (type === "ics-week") {
+                for (const day in (fullData || {})) {
+                    const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                    for (const lesson of lessons) {
+                        const [st, et] = lesson.time.split("-");
+                        const [hS, mS] = st.split(":").map(Number);
+                        const [hE, mE] = et.split(":").map(Number);
+                        const [y, mo, d] = day.split("-").map(Number);
+                        calendar.createEvent({
+                            start: new Date(y, mo - 1, d, hS, mS),
+                            end: new Date(y, mo - 1, d, hE, mE),
+                            summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + (lesson.classroom || ''),
+                            description: (lesson.teacher || '') + (lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ''),
+                            location: lesson.classroom || '',
+                            timezone: TIMEZONE
+                        });
+                    }
+                }
+            } else {
+                const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                for (const lesson of lessons) {
+                    const [st, et] = lesson.time.split("-");
+                    const [hS, mS] = st.split(":").map(Number);
+                    const [hE, mE] = et.split(":").map(Number);
+                    const [y, mo, d] = baseDate.split("-").map(Number);
+                    calendar.createEvent({
+                        start: new Date(y, mo - 1, d, hS, mS),
+                        end: new Date(y, mo - 1, d, hE, mE),
+                        summary: (lesson.name || '') + (lesson.type ? ` (${lesson.type})` : '') + (lesson.classroom || ''),
+                        description: (lesson.teacher || '') + (lesson.subgroup ? ` | П/г: ${lesson.subgroup}` : ''),
+                        location: lesson.classroom || '',
+                        timezone: TIMEZONE
+                    });
+                }
+            }
+            res.setHeader("Content-Type", "text/calendar");
+            res.setHeader("Content-Disposition", `inline; filename=schedule${type === "ics-week" ? "-week" : ""}.ics`);
+            res.setHeader("Cache-Control", "no-store");
+            return res.send(calendar.toString());
+        }
+
         if (type === "json" || type === "json-week") {
             const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
             setCacheHeaders(res, cacheInfo);
@@ -309,7 +362,7 @@ app.get("/gen", async (req, res) => {
 
 
 app.get("/gen_teach", async (req, res) => {
-    const { date, teacher, type: rawType, tomorrow } = req.query;
+    const { date, teacher, type: rawType, tomorrow, refresh } = req.query;
 
     if (!teacher || !rawType) {
         return res.status(400).send("Need: teacher, type (+ date or tomorrow/json-week/ics-week)");
@@ -334,8 +387,61 @@ app.get("/gen_teach", async (req, res) => {
         baseDate = getDateOffset(0, baseDate); // сегодня
     }
 
+    const forceRefresh = refresh === '1' || refresh === 'true';
+
     try {
         const startTime = Date.now();
+        if (forceRefresh) {
+            const { data: fullData } = await fetchTeacherFromSourceAndSave(teacher, baseDate, req, startTime, type);
+            setCacheHeaders(res, null);
+            if (type === "json" || type === "json-week") {
+                if (type === "json-week") return res.json(fullData || {});
+                const result = {};
+                if (fullData && fullData[baseDate]) result[baseDate] = fullData[baseDate];
+                return res.json(result);
+            }
+            const calendar = ical({ name: `Расписание для ${teacher}`, timezone: TIMEZONE });
+            if (type === "ics-week") {
+                for (const day in (fullData || {})) {
+                    const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                    for (const lesson of lessons) {
+                        const [st, et] = lesson.time.split("-");
+                        const [hS, mS] = st.split(":").map(Number);
+                        const [hE, mE] = et.split(":").map(Number);
+                        const [y, mo, d] = day.split("-").map(Number);
+                        calendar.createEvent({
+                            start: new Date(y, mo - 1, d, hS, mS),
+                            end: new Date(y, mo - 1, d, hE, mE),
+                            summary: lesson.subject || "Занятие",
+                            description: `${lesson.room || ""} ${lesson.group || ""}`,
+                            location: lesson.room || "",
+                            timezone: TIMEZONE
+                        });
+                    }
+                }
+            } else {
+                const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                for (const lesson of lessons) {
+                    const [st, et] = lesson.time.split("-");
+                    const [hS, mS] = st.split(":").map(Number);
+                    const [hE, mE] = et.split(":").map(Number);
+                    const [y, mo, d] = baseDate.split("-").map(Number);
+                    calendar.createEvent({
+                        start: new Date(y, mo - 1, d, hS, mS),
+                        end: new Date(y, mo - 1, d, hE, mE),
+                        summary: lesson.subject || "Занятие",
+                        description: `${lesson.room || ""} ${lesson.group || ""}`,
+                        location: lesson.room || "",
+                        timezone: TIMEZONE
+                    });
+                }
+            }
+            res.setHeader("Content-Type", "text/calendar");
+            res.setHeader("Content-Disposition", `inline; filename=schedule${type === "ics-week" ? "-week" : ""}.ics`);
+            res.setHeader("Cache-Control", "no-store");
+            return res.send(calendar.toString());
+        }
+
         if (type === "json" || type === "json-week") {
             const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
             setCacheHeaders(res, cacheInfo);
@@ -495,7 +601,7 @@ app.get("/gen_teach", async (req, res) => {
 });
 
 app.get("/gen_auditory", async (req, res) => {
-    const { date, auditory, type: rawType, tomorrow } = req.query;
+    const { date, auditory, type: rawType, tomorrow, refresh } = req.query;
 
     if (!auditory || !rawType) {
         return res.status(400).send("Need: auditory, type (+ date or tomorrow/json-week/ics-week)");
@@ -520,8 +626,61 @@ app.get("/gen_auditory", async (req, res) => {
         baseDate = getDateOffset(0, baseDate);
     }
 
+    const forceRefresh = refresh === '1' || refresh === 'true';
+
     try {
         const startTime = Date.now();
+        if (forceRefresh) {
+            const { data: fullData } = await fetchAuditoryFromSourceAndSave(auditory, baseDate, req, startTime, type);
+            setCacheHeaders(res, null);
+            if (type === "json" || type === "json-week") {
+                if (type === "json-week") return res.json(fullData || {});
+                const result = {};
+                if (fullData && fullData[baseDate]) result[baseDate] = fullData[baseDate];
+                return res.json(result);
+            }
+            const calendar = ical({ name: `Расписание для аудитории ${auditory}`, timezone: TIMEZONE });
+            if (type === "ics-week") {
+                for (const day in (fullData || {})) {
+                    const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                    for (const lesson of lessons) {
+                        const [st, et] = lesson.time.split("-");
+                        const [hS, mS] = st.split(":").map(Number);
+                        const [hE, mE] = et.split(":").map(Number);
+                        const [y, mo, d] = day.split("-").map(Number);
+                        calendar.createEvent({
+                            start: new Date(y, mo - 1, d, hS, mS),
+                            end: new Date(y, mo - 1, d, hE, mE),
+                            summary: lesson.subject || lesson.name || "Занятие",
+                            description: `${lesson.room || ""} ${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                            location: lesson.room || "",
+                            timezone: TIMEZONE
+                        });
+                    }
+                }
+            } else {
+                const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
+                for (const lesson of lessons) {
+                    const [st, et] = lesson.time.split("-");
+                    const [hS, mS] = st.split(":").map(Number);
+                    const [hE, mE] = et.split(":").map(Number);
+                    const [y, mo, d] = baseDate.split("-").map(Number);
+                    calendar.createEvent({
+                        start: new Date(y, mo - 1, d, hS, mS),
+                        end: new Date(y, mo - 1, d, hE, mE),
+                        summary: lesson.subject || lesson.name || "Занятие",
+                        description: `${lesson.room || ""} ${lesson.group || ""}${lesson.teacher ? ` | ${lesson.teacher}` : ""}`,
+                        location: lesson.room || "",
+                        timezone: TIMEZONE
+                    });
+                }
+            }
+            res.setHeader("Content-Type", "text/calendar");
+            res.setHeader("Content-Disposition", `inline; filename=schedule-auditory${type === "ics-week" ? "-week" : ""}.ics`);
+            res.setHeader("Cache-Control", "no-store");
+            return res.send(calendar.toString());
+        }
+
         if (type === "json" || type === "json-week") {
             const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
             setCacheHeaders(res, cacheInfo);
@@ -830,6 +989,80 @@ async function getAuditoryFullData(auditory, baseDate) {
     const parsed = await parseAuditory(baseDate, auditory);
     if (parsed) setCachedSchedule(cacheKey, parsed);
     return { data: parsed || {}, cacheInfo: null, source: 'source' };
+}
+
+/** When user asked for refresh: fetch from source, update cache and DB, log with source_asked */
+async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, req, startTime, type) {
+    const fullData = await parseStudent(baseDate, group, subgroup);
+    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
+    if (fullData) setCachedSchedule(cacheKey, fullData);
+    let requestStatsId = null;
+    if (dbLayer && fullData) {
+        try {
+            requestStatsId = dbLayer.insertRequestStats({
+                ip: getClientIP(req),
+                userAgent: req.headers['user-agent'] || null,
+                entityType: 'group',
+                entityKey: group,
+                requestedAt: startTime,
+                processingTimeMs: Date.now() - startTime,
+                type,
+                source: 'source_asked'
+            });
+            dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+        } catch (e) {
+            console.warn("refresh saveStudentScheduleToDb failed:", e.message);
+        }
+    }
+    return { data: fullData || {} };
+}
+
+async function fetchTeacherFromSourceAndSave(teacher, baseDate, req, startTime, type) {
+    const fullData = await parseTeacher(baseDate, teacher);
+    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
+    if (fullData) setCachedSchedule(cacheKey, fullData);
+    if (dbLayer && fullData) {
+        try {
+            const requestStatsId = dbLayer.insertRequestStats({
+                ip: getClientIP(req),
+                userAgent: req.headers['user-agent'] || null,
+                entityType: 'teacher',
+                entityKey: teacher,
+                requestedAt: startTime,
+                processingTimeMs: Date.now() - startTime,
+                type,
+                source: 'source_asked'
+            });
+            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+        } catch (e) {
+            console.warn("refresh saveTeacherScheduleToDb failed:", e.message);
+        }
+    }
+    return { data: fullData || {} };
+}
+
+async function fetchAuditoryFromSourceAndSave(auditory, baseDate, req, startTime, type) {
+    const fullData = await parseAuditory(baseDate, auditory);
+    const cacheKey = getScheduleCacheKey('auditory', auditory, baseDate);
+    if (fullData) setCachedSchedule(cacheKey, fullData);
+    if (dbLayer && fullData) {
+        try {
+            const requestStatsId = dbLayer.insertRequestStats({
+                ip: getClientIP(req),
+                userAgent: req.headers['user-agent'] || null,
+                entityType: 'auditory',
+                entityKey: auditory,
+                requestedAt: startTime,
+                processingTimeMs: Date.now() - startTime,
+                type,
+                source: 'source_asked'
+            });
+            dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+        } catch (e) {
+            console.warn("refresh saveAuditoryScheduleToDb failed:", e.message);
+        }
+    }
+    return { data: fullData || {} };
 }
 
 

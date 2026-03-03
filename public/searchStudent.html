@@ -279,6 +279,7 @@
         </div>
 
         <button id="search-group" class="button">Найти расписание</button>
+        <button id="refresh-from-source" class="button secondary" title="Запросить актуальные данные с сайта и обновить кэш и базу">Обновить из источника</button>
         <div id="update-time" class="update-time" style="display: none;"></div>
 
         <div id="recent-groups" class="recent-groups" style="display: none;">
@@ -374,7 +375,7 @@
                     btn.addEventListener('click', () => {
                         groupInput.value = group;
                         groupList.innerHTML = '';
-                        searchGroup();
+                        searchGroup(false);
                     });
                     recentGroupsGrid.appendChild(btn);
                 });
@@ -395,7 +396,8 @@
             }
 
             groupInput.addEventListener('input', updateDropdown);
-            searchButton.addEventListener('click', searchGroup);
+            searchButton.addEventListener('click', () => searchGroup(false));
+            document.getElementById('refresh-from-source').addEventListener('click', () => searchGroup(true));
 
             tomorrowCheckbox.addEventListener('change', function () {
                 dateInput.disabled = this.checked;
@@ -440,7 +442,7 @@
                 });
             }
 
-            async function searchGroup() {
+            async function searchGroup(forceRefresh = false) {
                 const group = groupInput.value.trim();
                 const subgroup = subgroupInput.value;
                 const date = dateInput.value;
@@ -453,7 +455,7 @@
                 }
 
                 resultsDiv.style.display = 'block';
-                resultsDiv.innerHTML = '<div class="loading">Поиск расписания...</div>';
+                resultsDiv.innerHTML = '<div class="loading">' + (forceRefresh ? 'Запрос данных с источника...' : 'Поиск расписания...') + '</div>';
 
                 const requestStartTime = performance.now();
 
@@ -468,6 +470,10 @@
                         url += '&tomorrow=true';
                     } else if (date) {
                         url += `&date=${date}`;
+                    }
+
+                    if (forceRefresh) {
+                        url += '&refresh=1';
                     }
 
                     const response = await fetch(url);

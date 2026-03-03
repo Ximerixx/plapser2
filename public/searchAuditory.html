@@ -53,6 +53,7 @@
         </div>
 
         <button id="search-auditory" class="button">Показать расписание</button>
+        <button id="refresh-from-source" class="button secondary" title="Запросить актуальные данные с сайта и обновить кэш и базу">Обновить из источника</button>
 
         <div id="results" style="display: none;"></div>
     </div>
@@ -91,7 +92,8 @@
             });
 
             auditoryInput.addEventListener('input', updateDropdown);
-            searchButton.addEventListener('click', searchAuditory);
+            searchButton.addEventListener('click', () => searchAuditory(false));
+            document.getElementById('refresh-from-source').addEventListener('click', () => searchAuditory(true));
 
             async function fetchAuditories() {
                 try {
@@ -121,7 +123,7 @@
                 });
             }
 
-            async function searchAuditory() {
+            async function searchAuditory(forceRefresh = false) {
                 const auditory = auditoryInput.value.trim();
                 const date = dateInput.value;
                 const weekParsing = weekParsingCheckbox.checked;
@@ -132,12 +134,13 @@
                 }
 
                 resultsDiv.style.display = 'block';
-                resultsDiv.innerHTML = '<div class="loading">Загрузка...</div>';
+                resultsDiv.innerHTML = '<div class="loading">' + (forceRefresh ? 'Запрос данных с источника...' : 'Загрузка...') + '</div>';
 
                 try {
                     const apiType = weekParsing ? 'json-week' : 'json';
                     let url = `/gen_auditory?auditory=${encodeURIComponent(auditory)}&type=${apiType}`;
                     if (date) url += `&date=${date}`;
+                    if (forceRefresh) url += '&refresh=1';
 
                     const response = await fetch(url);
                     const data = await response.json();
