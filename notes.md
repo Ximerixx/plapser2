@@ -32,8 +32,6 @@
 - `package.json` - Node.js dependencies and metadata
 - `README.md` - Project documentation (385 lines)
 - `plapser.service` - systemd service configuration file
-- `install.sh` - Nextcloud plugin installation script
-- `next_plugin.tar.gz` - Nextcloud plugin package
 - `LICENSE` - License file
 
 ### Directory: `/parser/`
@@ -81,8 +79,6 @@
 - `CACHE_TTL = 3600000` - Cache TTL: 1 hour (1,000,000 milliseconds)
 - `allowedTypes = Set(["json", "json-week", "ics", "ics-week"])` - Valid output formats
 - `modernCalFormat = true` - ICS format flag (affects event summary format)
-- `serveNextcloudPlugin = true` - Enable Nextcloud plugin serving
-- `nextcloudPluginPath = './next_plugin.tar.gz'` - Plugin package path
 
 ### CORS Configuration
 ```javascript
@@ -205,10 +201,6 @@ allowedHeaders: ['Content-Type', 'Authorization']
 #### GET `/searchTeacher` - Teacher Search Page
 **Purpose:** Serve searchTeacher.html file
 **Response:** HTML file from `/public/searchTeacher.html`
-
-#### Nextcloud Plugin Routes (if serveNextcloudPlugin = true)
-- `GET /next_plugin/next_plugin.tar.gz` - Download plugin package
-- `GET /next_plugin/install.sh` - Download installation script
 
 ### Static File Serving
 - `app.use(express.static(path.join(__dirname, 'public')))` - Serves all files from /public directory
@@ -572,21 +564,6 @@ location / {
 }
 ```
 
-### Nextcloud Plugin Installation
-**Script:** `install.sh`
-**Purpose:** Automated installation of Nextcloud plugin
-**Process:**
-1. Downloads plugin from `/next_plugin/next_plugin.tar.gz`
-2. Extracts to `/var/www/html/custom_apps/plapser_calendar`
-3. Sets permissions (www-data:www-data, 755)
-4. Enables plugin via `occ app:enable`
-5. Self-destructs after completion
-
-**Usage:**
-```bash
-curl -L http://api.durka.su/next_plugin/install.sh | bash
-```
-
 ---
 
 ## DATA FORMATS
@@ -723,8 +700,6 @@ curl -L http://api.durka.su/next_plugin/install.sh | bash
 - Cache TTL (line 246)
 - CORS origin (line 31)
 - modernCalFormat flag (line 15)
-- serveNextcloudPlugin flag (line 18)
-- nextcloudPluginPath (line 19)
 
 ### Parser Configuration
 - VALID_LESSON_TYPES (parseStudent.js line 5)
