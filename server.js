@@ -6,6 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const { parseTeacher } = require("./parser/parseTeacher");
 
+let dbLayer = null;
+try {
+    dbLayer = require("./db/db");
+} catch (e) {
+    console.warn("DB layer not available:", e.message);
+}
+
 const app = express();
 const port = 3000;
 const TIMEZONE = "Europe/Moscow";
@@ -98,11 +105,6 @@ const allowedTypes = new Set(["json", "json-week", "ics", "ics-week"]);
 
 const modernCalFormat = true;
 
-// Configuration for Nextcloud plugin serving
-const serveNextcloudPlugin = false //false
-const nextcloudPluginPath = './next_plugin.tar.gz'
-
-
 //офсетные дны, генекрат baseDate - опциональный
 
 function getDateOffset(offsetDays = 0, baseDate = null) {
@@ -146,75 +148,32 @@ app.get("/gen", async (req, res) => {
     }
 
     try {
+        const startTime = Date.now();
         if (type === "json" || type === "json-week") {
+            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            setCacheHeaders(res, cacheInfo);
             if (type === "json-week") {
-                // Один запрос для всей недели - возвращаем все дни, что пришли от API
-                const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-                let cacheInfo = getCachedSchedule(cacheKey);
-                let fullData = null;
-                
-                if (!cacheInfo) {
-                    fullData = await parseStudent(baseDate, group, subgroup);
-                    if (fullData) {
-                        setCachedSchedule(cacheKey, fullData);
-                    }
-                    setCacheHeaders(res, null);
-                } else {
-                    fullData = cacheInfo.data;
-                    setCacheHeaders(res, cacheInfo);
-                }
-                
+                recordScheduleStats(req, startTime, 'group', group, type);
                 return res.json(fullData || {});
             } else {
-                // Один день - как раньше
-                const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-                let cacheInfo = getCachedSchedule(cacheKey);
-                let fullData = null;
-                
-                if (!cacheInfo) {
-                    fullData = await parseStudent(baseDate, group, subgroup);
-                    if (fullData) {
-                        setCachedSchedule(cacheKey, fullData);
-                    }
-                    setCacheHeaders(res, null);
-                } else {
-                    fullData = cacheInfo.data;
-                    setCacheHeaders(res, cacheInfo);
-                }
-                
                 const result = {};
                 if (fullData && fullData[baseDate]) {
                     result[baseDate] = fullData[baseDate];
                 }
+                recordScheduleStats(req, startTime, 'group', group, type);
                 return res.json(result);
             }
         }
 
         //если не json то нам сюда
-        //rem - надо бы если честно оформлять это в if (ics) или типа того, но у меня была проверка до этого...
         const calendar = ical({
             name: `Расписание для ${group}`,
             timezone: TIMEZONE
         });
 
         if (type === "ics-week") {
-            // Один запрос для всей недели - обрабатываем все дни, что пришли от API
-            const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-            let cacheInfo = getCachedSchedule(cacheKey);
-            let fullData = null;
-            
-            if (!cacheInfo) {
-                fullData = await parseStudent(baseDate, group, subgroup);
-                if (fullData) {
-                    setCachedSchedule(cacheKey, fullData);
-                }
-                setCacheHeaders(res, null);
-            } else {
-                fullData = cacheInfo.data;
-                setCacheHeaders(res, cacheInfo);
-            }
-            
-            // Обрабатываем все дни из ответа
+            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            setCacheHeaders(res, cacheInfo);
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -248,22 +207,8 @@ app.get("/gen", async (req, res) => {
                 }
             }
         } else {
-            // Один день - как раньше
-            const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-            let cacheInfo = getCachedSchedule(cacheKey);
-            let fullData = null;
-            
-            if (!cacheInfo) {
-                fullData = await parseStudent(baseDate, group, subgroup);
-                if (fullData) {
-                    setCachedSchedule(cacheKey, fullData);
-                }
-                setCacheHeaders(res, null);
-            } else {
-                fullData = cacheInfo.data;
-                setCacheHeaders(res, cacheInfo);
-            }
-            
+            const { data: fullData, cacheInfo } = await getStudentFullData(group, baseDate, subgroup);
+            setCacheHeaders(res, cacheInfo);
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -299,6 +244,7 @@ app.get("/gen", async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Published-TTL", "PT1H");
 
+        recordScheduleStats(req, startTime, 'group', group, type);
         res.send(calendar.toString());
     } catch (err) {
         console.error(err);
@@ -334,74 +280,31 @@ app.get("/gen_teach", async (req, res) => {
     }
 
     try {
+        const startTime = Date.now();
         if (type === "json" || type === "json-week") {
+            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            setCacheHeaders(res, cacheInfo);
             if (type === "json-week") {
-                // Один запрос для всей недели - возвращаем все дни, что пришли от API
-                const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-                let cacheInfo = getCachedSchedule(cacheKey);
-                let fullData = null;
-                
-                if (!cacheInfo) {
-                    fullData = await parseTeacher(baseDate, teacher);
-                    if (fullData) {
-                        setCachedSchedule(cacheKey, fullData);
-                    }
-                    setCacheHeaders(res, null);
-                } else {
-                    fullData = cacheInfo.data;
-                    setCacheHeaders(res, cacheInfo);
-                }
-                
+                recordScheduleStats(req, startTime, 'teacher', teacher, type);
                 return res.json(fullData || {});
             } else {
-                // Один день - как раньше
-                const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-                let cacheInfo = getCachedSchedule(cacheKey);
-                let fullData = null;
-                
-                if (!cacheInfo) {
-                    fullData = await parseTeacher(baseDate, teacher);
-                    if (fullData) {
-                        setCachedSchedule(cacheKey, fullData);
-                    }
-                    setCacheHeaders(res, null);
-                } else {
-                    fullData = cacheInfo.data;
-                    setCacheHeaders(res, cacheInfo);
-                }
-                
                 const result = {};
                 if (fullData && fullData[baseDate]) {
                     result[baseDate] = fullData[baseDate];
                 }
+                recordScheduleStats(req, startTime, 'teacher', teacher, type);
                 return res.json(result);
             }
         }
 
-        // если не json и не json-week -> генерим ICS
         const calendar = ical({
             name: `Расписание для ${teacher}`,
             timezone: TIMEZONE
         });
 
         if (type === "ics-week") {
-            // Один запрос для всей недели - обрабатываем все дни, что пришли от API
-            const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-            let cacheInfo = getCachedSchedule(cacheKey);
-            let fullData = null;
-            
-            if (!cacheInfo) {
-                fullData = await parseTeacher(baseDate, teacher);
-                if (fullData) {
-                    setCachedSchedule(cacheKey, fullData);
-                }
-                setCacheHeaders(res, null);
-            } else {
-                fullData = cacheInfo.data;
-                setCacheHeaders(res, cacheInfo);
-            }
-            
-            // Обрабатываем все дни из ответа
+            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            setCacheHeaders(res, cacheInfo);
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -436,22 +339,8 @@ app.get("/gen_teach", async (req, res) => {
                 }
             }
         } else {
-            // Один день - как раньше
-            const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-            let cacheInfo = getCachedSchedule(cacheKey);
-            let fullData = null;
-            
-            if (!cacheInfo) {
-                fullData = await parseTeacher(baseDate, teacher);
-                if (fullData) {
-                    setCachedSchedule(cacheKey, fullData);
-                }
-                setCacheHeaders(res, null);
-            } else {
-                fullData = cacheInfo.data;
-                setCacheHeaders(res, cacheInfo);
-            }
-            
+            const { data: fullData, cacheInfo } = await getTeacherFullData(teacher, baseDate);
+            setCacheHeaders(res, cacheInfo);
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -488,6 +377,7 @@ app.get("/gen_teach", async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Published-TTL", "PT1H");
 
+        recordScheduleStats(req, startTime, 'teacher', teacher, type);
         res.send(calendar.toString());
     } catch (err) {
         console.error(err);
@@ -577,6 +467,68 @@ function setCachedSchedule(key, data) {
     }
 }
 
+function recordScheduleStats(req, startTime, entityType, entityKey, responseType) {
+    if (dbLayer && dbLayer.insertRequestStats) {
+        try {
+            dbLayer.insertRequestStats({
+                ip: getClientIP(req),
+                userAgent: req.headers['user-agent'] || null,
+                entityType,
+                entityKey,
+                processingTimeMs: Date.now() - startTime,
+                type: responseType
+            });
+        } catch (e) {
+            console.warn("request_stats insert failed:", e.message);
+        }
+    }
+}
+
+async function getStudentFullData(group, baseDate, subgroup) {
+    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
+    const cacheInfo = getCachedSchedule(cacheKey);
+    if (cacheInfo) return { data: cacheInfo.data, cacheInfo };
+    if (dbLayer) {
+        const weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
+        if (weekData) {
+            setCachedSchedule(cacheKey, weekData);
+            return { data: weekData, cacheInfo: null };
+        }
+    }
+    const parsed = await parseStudent(baseDate, group, subgroup);
+    if (parsed && dbLayer && dbLayer.saveStudentScheduleToDb) {
+        try {
+            dbLayer.saveStudentScheduleToDb(group, baseDate, parsed);
+        } catch (e) {
+            console.warn("saveStudentScheduleToDb failed:", e.message);
+        }
+    }
+    if (parsed) setCachedSchedule(cacheKey, parsed);
+    return { data: parsed || {}, cacheInfo: null };
+}
+
+async function getTeacherFullData(teacher, baseDate) {
+    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
+    const cacheInfo = getCachedSchedule(cacheKey);
+    if (cacheInfo) return { data: cacheInfo.data, cacheInfo };
+    if (dbLayer) {
+        const weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+        if (weekData) {
+            setCachedSchedule(cacheKey, weekData);
+            return { data: weekData, cacheInfo: null };
+        }
+    }
+    const parsed = await parseTeacher(baseDate, teacher);
+    if (parsed && dbLayer && dbLayer.saveTeacherScheduleToDb) {
+        try {
+            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, parsed);
+        } catch (e) {
+            console.warn("saveTeacherScheduleToDb failed:", e.message);
+        }
+    }
+    if (parsed) setCachedSchedule(cacheKey, parsed);
+    return { data: parsed || {}, cacheInfo: null };
+}
 
 
 app.get('/api/groups', async (req, res) => {
@@ -694,86 +646,6 @@ app.get('/searchStudent', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'searchStudent.html'));
 });
 
-// Marketplace routes for Nextcloud plugin
-if (serveNextcloudPlugin) {
-    console.log(`Nextcloud plugin serving enabled. Plugin path: ${nextcloudPluginPath}`);
-
-    // Serve the plugin package
-    app.get('/next_plugin/next_plugin.tar.gz', (req, res) => {
-        const pluginPath = nextcloudPluginPath;
-
-        // Check if plugin package exists
-        if (!fs.existsSync(pluginPath)) {
-            console.error(`Plugin package not found at: ${pluginPath}`);
-            return res.status(404).json({
-                error: 'Plugin package not found',
-                message: 'The Nextcloud plugin package is not available. Please check the configuration.',
-                path: pluginPath
-            });
-        }
-
-        try {
-            // Set appropriate headers for file download
-            res.setHeader('Content-Type', 'application/gzip');
-            res.setHeader('Content-Disposition', 'attachment; filename="next_plugin.tar.gz"');
-            res.setHeader('Content-Length', fs.statSync(pluginPath).size);
-
-            // Stream the file
-            const fileStream = fs.createReadStream(pluginPath);
-            fileStream.pipe(res);
-
-            console.log(`Served plugin package to ${req.ip}`);
-        } catch (error) {
-            console.error('Error serving plugin package:', error);
-            res.status(500).json({
-                error: 'Internal server error',
-                message: 'Failed to serve plugin package'
-            });
-        }
-    });
-
-    // Serve the installation script
-    app.get('/next_plugin/install.sh', (req, res) => {
-        const installScriptPath = path.join(__dirname, 'install.sh');
-
-        // Check if install script exists
-        if (!fs.existsSync(installScriptPath)) {
-            console.error(`Install script not found at: ${installScriptPath}`);
-            return res.status(404).json({
-                error: 'Install script not found',
-                message: 'The installation script is not available.',
-                path: installScriptPath
-            });
-        }
-
-        try {
-            // Set appropriate headers for shell script download
-            res.setHeader('Content-Type', 'application/x-sh');
-            res.setHeader('Content-Disposition', 'attachment; filename="install"');
-            res.setHeader('Content-Length', fs.statSync(installScriptPath).size);
-
-            // Stream the file
-            const fileStream = fs.createReadStream(installScriptPath);
-            fileStream.pipe(res);
-
-            console.log(`Served install script to ${req.ip}`);
-        } catch (error) {
-            console.error('Error serving install script:', error);
-            res.status(500).json({
-                error: 'Internal server error',
-                message: 'Failed to serve install script'
-            });
-        }
-    });
-
-} else {
-    console.log('Nextcloud plugin serving disabled. Set SERVE_NEXTCLOUD_PLUGIN=true in server.js to enable.');
-}
-
 app.listen(port, () => {
     console.log(`server ok!`);
-    if (serveNextcloudPlugin) {
-        console.log(`Nextcloud plugin available at: http://localhost:${port}/next_plugin/next_plugin.tar.gz or wherever your plapser is hosted`);
-        console.log(`Installation script available at: http://localhost:${port}/next_plugin/install.sh`);
-    }
 });
