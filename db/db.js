@@ -51,6 +51,18 @@ function runMigrations(d) {
     } catch (_) {
         // Index creation fails if duplicates exist; run scripts/dedupe-schedule-slots.js then restart
     }
+    const hasPreloadState = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='preload_state'").get();
+    if (!hasPreloadState) {
+        d.exec(`
+            CREATE TABLE preload_state (
+              entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+              entity_key TEXT NOT NULL,
+              request_count INTEGER NOT NULL DEFAULT 0,
+              last_preloaded_at INTEGER,
+              PRIMARY KEY (entity_type, entity_key)
+            )
+        `);
+    }
 }
 
 function migrateClassroomsToAuditories(d) {
@@ -227,6 +239,7 @@ function insertScheduleSlot(row) {
     );
 }
 
+// created_at для schedule_meta задаётся здесь; для schedule_slots — DEFAULT (unixepoch()) в схеме при INSERT
 function insertScheduleMeta(entityType, entityKey, date, noLessons, requestStatsId = null) {
     const d = getDb();
     d.prepare(`
@@ -477,6 +490,62 @@ function formatDateDisplay(isoDate) {
     return `${parseInt(d, 10)} ${months[parseInt(m, 10) - 1]} ${y}`;
 }
 
+/** Возраст данных для (entity_type, entity_key, date): max(created_at) из слотов или created_at из меты (для «Нет пар»). */
+function getScheduleMaxCreatedAt(entityType, entityKey, date) {
+    const d = getDb();
+    let id = null;
+    let column = null;
+    if (entityType === 'group') {
+        const r = d.prepare('SELECT id FROM groups WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'group_id'; }
+    } else if (entityType === 'teacher') {
+        const r = d.prepare('SELECT id FROM teachers WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'teacher_id'; }
+    } else if (entityType === 'auditory') {
+        const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'auditory_id'; }
+    }
+    if (id == null || !column) return null;
+    const slot = d.prepare(`SELECT MAX(created_at) AS mx FROM schedule_slots WHERE ${column} = ? AND date = ?`).get(id, date);
+    if (slot && slot.mx != null) return slot.mx;
+    const meta = d.prepare('SELECT created_at FROM schedule_meta WHERE entity_type = ? AND entity_key = ? AND date = ?').get(entityType, entityKey, date);
+    return meta ? meta.created_at : null;
+}
+
+/** Минимальный возраст по семи дням с baseDate (для недели). */
+function getScheduleMaxCreatedAtMinForWeek(entityType, entityKey, baseDate) {
+    let minTs = null;
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(baseDate + 'T12:00:00');
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const ts = getScheduleMaxCreatedAt(entityType, entityKey, dateStr);
+        if (ts == null) return null;
+        if (minTs == null || ts < minTs) minTs = ts;
+    }
+    return minTs;
+}
+
+/** Обновить created_at для (entity_type, entity_key, date) без перезаписи слотов — только «тик» для эйджинга. */
+function bumpScheduleCreatedAt(entityType, entityKey, date) {
+    const d = getDb();
+    let id = null;
+    let column = null;
+    if (entityType === 'group') {
+        const r = d.prepare('SELECT id FROM groups WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'group_id'; }
+    } else if (entityType === 'teacher') {
+        const r = d.prepare('SELECT id FROM teachers WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'teacher_id'; }
+    } else if (entityType === 'auditory') {
+        const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
+        if (r) { id = r.id; column = 'auditory_id'; }
+    }
+    if (id == null || !column) return;
+    d.prepare(`UPDATE schedule_slots SET created_at = unixepoch() WHERE ${column} = ? AND date = ?`).run(id, date);
+    d.prepare('UPDATE schedule_meta SET created_at = unixepoch() WHERE entity_type = ? AND entity_key = ? AND date = ?').run(entityType, entityKey, date);
+}
+
 function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId = null) {
     if (!parsedResult || typeof parsedResult !== 'object') return;
     const d = getDb();
@@ -611,6 +680,51 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
     insert(parsedResult);
 }
 
+/** Топ запросов за sinceDays дней по request_stats; limitPerType — макс. записей на каждый entity_type. */
+function getTopRequestedEntities(sinceDays = 7, limitPerType = 5) {
+    const d = getDb();
+    const since = Math.floor(Date.now() / 1000) - sinceDays * 86400;
+    const rows = d.prepare(`
+        SELECT entity_type, entity_key, COUNT(*) AS cnt
+        FROM request_stats
+        WHERE requested_at >= ?
+        GROUP BY entity_type, entity_key
+        ORDER BY entity_type, cnt DESC
+    `).all(since);
+    const byType = { group: [], teacher: [], auditory: [] };
+    for (const r of rows) {
+        if (byType[r.entity_type].length < limitPerType) {
+            byType[r.entity_type].push({ entity_type: r.entity_type, entity_key: r.entity_key, request_count: r.cnt });
+        }
+    }
+    return [...byType.group, ...byType.teacher, ...byType.auditory];
+}
+
+/** Записать текущий топ в preload_state (заменяет содержимое). */
+function upsertPreloadState(entities) {
+    const d = getDb();
+    const run = d.transaction((list) => {
+        d.prepare('DELETE FROM preload_state').run();
+        const stmt = d.prepare('INSERT INTO preload_state (entity_type, entity_key, request_count) VALUES (?, ?, ?)');
+        for (const e of list) {
+            stmt.run(e.entity_type, e.entity_key, e.request_count || 0);
+        }
+    });
+    run(entities);
+}
+
+/** Список сущностей из preload_state для предзагрузки. */
+function getPreloadStateEntities() {
+    const d = getDb();
+    return d.prepare('SELECT entity_type, entity_key FROM preload_state').all();
+}
+
+/** Обновить last_preloaded_at для сущности. */
+function updateLastPreloaded(entityType, entityKey) {
+    const d = getDb();
+    d.prepare('UPDATE preload_state SET last_preloaded_at = unixepoch() WHERE entity_type = ? AND entity_key = ?').run(entityType, entityKey);
+}
+
 module.exports = {
     getDb,
     ensureGroup,
@@ -626,6 +740,13 @@ module.exports = {
     getStudentScheduleWeek,
     getTeacherScheduleWeek,
     getAuditoryScheduleWeek,
+    getScheduleMaxCreatedAt,
+    getScheduleMaxCreatedAtMinForWeek,
+    bumpScheduleCreatedAt,
+    getTopRequestedEntities,
+    upsertPreloadState,
+    getPreloadStateEntities,
+    updateLastPreloaded,
     saveStudentScheduleToDb,
     saveTeacherScheduleToDb,
     saveAuditoryScheduleToDb

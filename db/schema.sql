@@ -76,3 +76,12 @@ CREATE TABLE IF NOT EXISTS schedule_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_meta_lookup ON schedule_meta(entity_type, entity_key, date);
+
+-- Топ запросов для предзагрузки: entity_type, entity_key, счётчик, время последней предзагрузки
+CREATE TABLE IF NOT EXISTS preload_state (
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+  entity_key TEXT NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  last_preloaded_at INTEGER,
+  PRIMARY KEY (entity_type, entity_key)
+);
