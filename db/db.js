@@ -42,6 +42,15 @@ function runMigrations(d) {
     migrateEntityTypeToIncludeAuditory(d);
     migrateSourceAsked(d);
     migrateClassroomsToAuditories(d);
+    try {
+        d.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_dedup
+            ON schedule_slots (group_id, date, time_start, time_end,
+                COALESCE(subject_id, -1), COALESCE(teacher_id, -1), COALESCE(auditory_id, -1))
+        `);
+    } catch (_) {
+        // Index creation fails if duplicates exist; run scripts/dedupe-schedule-slots.js then restart
+    }
 }
 
 function migrateClassroomsToAuditories(d) {
@@ -189,17 +198,29 @@ function ensureSubject(name) {
 
 function insertScheduleSlot(row) {
     const d = getDb();
+    const teacherId = row.teacher_id ?? null;
+    const subjectId = row.subject_id ?? null;
+    const auditoryId = row.auditory_id ?? null;
+    const exists = d.prepare(`
+        SELECT 1 FROM schedule_slots
+        WHERE group_id = ? AND date = ? AND time_start = ? AND time_end = ?
+          AND COALESCE(subject_id, -1) = COALESCE(?, -1)
+          AND COALESCE(teacher_id, -1) = COALESCE(?, -1)
+          AND COALESCE(auditory_id, -1) = COALESCE(?, -1)
+        LIMIT 1
+    `).get(row.group_id, row.date, row.time_start, row.time_end, subjectId, teacherId, auditoryId);
+    if (exists) return;
     d.prepare(`
-        INSERT INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, auditory_id, lesson_type, subgroup, request_stats_id)
+        INSERT OR IGNORE INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, auditory_id, lesson_type, subgroup, request_stats_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         row.date,
         row.time_start,
         row.time_end,
         row.group_id,
-        row.teacher_id ?? null,
-        row.subject_id ?? null,
-        row.auditory_id ?? null,
+        teacherId,
+        subjectId,
+        auditoryId,
         row.lesson_type ?? null,
         row.subgroup ?? null,
         row.request_stats_id ?? null

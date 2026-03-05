@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
 
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_group_date ON schedule_slots(group_id, date);
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_teacher_date ON schedule_slots(teacher_id, date);
+-- Deduplication: one row per (group, date, time, subject, teacher, auditory)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_dedup ON schedule_slots (group_id, date, time_start, time_end, COALESCE(subject_id, -1), COALESCE(teacher_id, -1), COALESCE(auditory_id, -1));
 -- idx_schedule_slots_auditory_date created in migration (column may not exist in existing DBs)
 
 -- Meta: "we already fetched this entity+date" and "no lessons" marker
