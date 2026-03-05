@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { normalizeSubjectPrefix } = require('./normalizeSubject');
 
 // Auditory page uses 2-3 letter prefixes (ОИС1-242-ОП, ИС2-242-ОБ, ТО1-234-ОТ)
 const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
@@ -101,20 +102,16 @@ async function parseAuditory(date, auditory) {
                     room = link;
                 }
 
-                let type = '';
-                let name = subjectLine;
-                const parts = subjectLine.split('.');
-                if (parts.length > 1 && VALID_LESSON_TYPES.has(parts[0].trim().toLowerCase() + '.')) {
-                    type = parts[0].trim() + '.';
-                    name = parts.slice(1).join('.').trim();
-                }
+                const fullNormalized = normalizeSubjectPrefix(subjectLine);
+                const hasPrefix = /^(лаб\.|лек\.|пр\.)\s/.test(fullNormalized);
+                const type = hasPrefix ? fullNormalized.split(/\s/)[0] : '';
 
                 const auditoryName = room || auditory;
                 result[dateKey].lessons.push({
                     time,
                     type,
-                    name,
-                    subject: name,
+                    name: fullNormalized,
+                    subject: fullNormalized,
                     subgroup: subgroup || '',
                     groups: groups.length > 0 ? groups : [auditory],
                     group: groups.length > 0 ? groups.join(', ') : '',

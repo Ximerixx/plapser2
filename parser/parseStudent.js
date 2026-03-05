@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
+const { normalizeSubjectPrefix } = require('./normalizeSubject');
 
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
@@ -122,8 +123,9 @@ async function parseStudent(date, group, subgroup = null) {
                     if (!hasType) {
                         const parts = element.split('.');
                         if (parts.length > 1 && VALID_LESSON_TYPES.has(parts[0].toLowerCase() + '.')) {
-                            lesson.type = parts[0].trim();
-                            lesson.name = parts.slice(1).join('.').trim();
+                            const fullNormalized = normalizeSubjectPrefix(element);
+                            lesson.type = fullNormalized.split(/\s/)[0]; // "лаб." / "лек." / "пр."
+                            lesson.name = fullNormalized;
                             hasType = true;
                         } else {
                             lesson.name = element;

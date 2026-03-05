@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { normalizeSubjectPrefix } = require('./normalizeSubject');
 
 const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
@@ -72,7 +73,7 @@ async function parseTeacher(date, teacher) {
                     if (s === '') return;
 
                     if (index === 0) {
-                        subject = s;
+                        subject = normalizeSubjectPrefix(s);
                         return;
                     }
                     if (s.includes('п.г.')) {
