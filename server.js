@@ -21,6 +21,16 @@ const TIMEZONE = "Europe/Moscow";
 // Статика: max-age в секундах (браузер не перезапросит раньше). Для теста — 1 ч; для прода — 86400 (сутки) или 604800 (неделя).
 const STATIC_CACHE_MAX_AGE_SECONDS = 3600;
 
+// Эйджинг: не отдавать из БД данные старше FRESHNESS_HOURS; идти в KIS.
+const FRESHNESS_HOURS = 2;
+const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
+
+// Предзагрузка топа: окно для подсчёта запросов (дней), лимит на тип, интервалы (мс).
+const PRELOAD_TOP_DAYS = 7;
+const PRELOAD_TOP_LIMIT = 5;
+const TOP_RECALC_INTERVAL_MS = 30 * 60 * 1000;  // пересчёт топа в 2 раза чаще предзагрузки
+const PRELOAD_INTERVAL_MS = 60 * 60 * 1000;
+
 // Logging utility
 function getClientIP(req) {
     return req.headers['x-forwarded-for']?.split(',')[0].trim() ||
@@ -123,7 +133,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// gzip.  клиенты без Accept-Encoding: gzip получают ответ без сжатия.
+// gzip клиенты без Accept-Encoding: gzip получают ответ без сжатия.
 const compression = require('compression');
 app.use(compression({ threshold: 1024 })); // сжимать только ответы > 1 KB
 
@@ -225,7 +235,7 @@ app.get("/gen", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveStudentScheduleToDb (source) failed:", e.message);
                 }
@@ -264,7 +274,8 @@ app.get("/gen", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                    //dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveStudentScheduleToDb (source) failed:", e.message);
                 }
@@ -318,7 +329,7 @@ app.get("/gen", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveStudentScheduleToDb (source) failed:", e.message);
                 }
@@ -464,7 +475,7 @@ app.get("/gen_teach", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
                 }
@@ -502,7 +513,7 @@ app.get("/gen_teach", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
                 }
@@ -557,7 +568,7 @@ app.get("/gen_teach", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
                 }
@@ -703,7 +714,7 @@ app.get("/gen_auditory", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
                 }
@@ -741,7 +752,7 @@ app.get("/gen_auditory", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
                 }
@@ -793,7 +804,7 @@ app.get("/gen_auditory", async (req, res) => {
                         type,
                         source: 'source'
                     });
-                    dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
                 } catch (e) {
                     console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
                 }
@@ -931,6 +942,100 @@ function setCachedSchedule(key, data) {
     }
 }
 
+function weekDataEqual(a, b) {
+    if (!a || !b) return false;
+    const keysA = Object.keys(a).filter(k => a[k] && typeof a[k] === 'object');
+    const keysB = Object.keys(b).filter(k => b[k] && typeof b[k] === 'object');
+    if (keysA.length !== keysB.length) return false;
+    const norm = (day) => {
+        const lessons = (day.lessons || []).filter(l => l.time && l.time.includes('-'));
+        if (lessons.length === 0 && day.lessons?.length === 1 && day.lessons[0].status === 'Нет пар') return 'no_lessons';
+        return lessons.map(l => `${l.time}|${l.name || l.subject || ''}|${l.teacher || ''}|${l.auditory || l.room || ''}`).sort().join(';');
+    };
+    for (const date of keysA) {
+        if (!b[date]) return false;
+        if (norm(a[date]) !== norm(b[date])) return false;
+    }
+    return true;
+}
+
+function saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId) {
+    if (!dbLayer || !fullData) return;
+    try {
+        const weekFromDb = dbLayer.getStudentScheduleWeek(group, baseDate, null);
+        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
+            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('group', group, date);
+        } else {
+            dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+        }
+    } catch (e) {
+        console.warn("saveStudentScheduleToDbOrBump failed:", e.message);
+        dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+    }
+}
+
+function saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId) {
+    if (!dbLayer || !fullData) return;
+    try {
+        const weekFromDb = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
+            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('teacher', teacher, date);
+        } else {
+            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+        }
+    } catch (e) {
+        console.warn("saveTeacherScheduleToDbOrBump failed:", e.message);
+        dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+    }
+}
+
+function saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId) {
+    if (!dbLayer || !fullData) return;
+    try {
+        const weekFromDb = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
+        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
+            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('auditory', auditory, date);
+        } else {
+            dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+        }
+    } catch (e) {
+        console.warn("saveAuditoryScheduleToDbOrBump failed:", e.message);
+        dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+    }
+}
+
+function runTopRecalc() {
+    if (!dbLayer || !dbLayer.getTopRequestedEntities || !dbLayer.upsertPreloadState) return;
+    try {
+        const entities = dbLayer.getTopRequestedEntities(PRELOAD_TOP_DAYS, PRELOAD_TOP_LIMIT);
+        dbLayer.upsertPreloadState(entities);
+    } catch (e) {
+        console.warn("runTopRecalc failed:", e.message);
+    }
+}
+
+async function runSchedulePreload() {
+    if (!dbLayer || !dbLayer.getPreloadStateEntities || !dbLayer.updateLastPreloaded) return;
+    const today = getDateOffset(0);
+    try {
+        const list = dbLayer.getPreloadStateEntities();
+        for (const row of list) {
+            try {
+                if (row.entity_type === 'group') {
+                    await getStudentFullData(row.entity_key, today, null);
+                } else if (row.entity_type === 'teacher') {
+                    await getTeacherFullData(row.entity_key, today);
+                } else if (row.entity_type === 'auditory') {
+                    await getAuditoryFullData(row.entity_key, today);
+                }
+                dbLayer.updateLastPreloaded(row.entity_type, row.entity_key);
+            } catch (_) {}
+        }
+    } catch (e) {
+        console.warn("runSchedulePreload failed:", e.message);
+    }
+}
+
 function recordScheduleStats(req, startTime, entityType, entityKey, responseType, source) {
     if (dbLayer && dbLayer.insertRequestStats) {
         try {
@@ -955,7 +1060,16 @@ async function getStudentFullData(group, baseDate, subgroup) {
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
     if (dbLayer) {
-        const weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
+        let weekData = null;
+        try {
+            weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
+            if (weekData) {
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('group', group, baseDate);
+                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
+            }
+        } catch (_) {
+            weekData = null;
+        }
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
             return { data: weekData, cacheInfo: null, source: 'db' };
@@ -971,7 +1085,16 @@ async function getTeacherFullData(teacher, baseDate) {
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
     if (dbLayer) {
-        const weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+        let weekData = null;
+        try {
+            weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+            if (weekData) {
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('teacher', teacher, baseDate);
+                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
+            }
+        } catch (_) {
+            weekData = null;
+        }
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
             return { data: weekData, cacheInfo: null, source: 'db' };
@@ -987,7 +1110,16 @@ async function getAuditoryFullData(auditory, baseDate) {
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
     if (dbLayer) {
-        const weekData = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
+        let weekData = null;
+        try {
+            weekData = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
+            if (weekData) {
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('auditory', auditory, baseDate);
+                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
+            }
+        } catch (_) {
+            weekData = null;
+        }
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
             return { data: weekData, cacheInfo: null, source: 'db' };
@@ -1016,7 +1148,7 @@ async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, req, sta
                 type,
                 source: 'source_asked'
             });
-            dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
+            saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
         } catch (e) {
             console.warn("refresh saveStudentScheduleToDb failed:", e.message);
         }
@@ -1040,7 +1172,7 @@ async function fetchTeacherFromSourceAndSave(teacher, baseDate, req, startTime, 
                 type,
                 source: 'source_asked'
             });
-            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
+            saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
         } catch (e) {
             console.warn("refresh saveTeacherScheduleToDb failed:", e.message);
         }
@@ -1064,7 +1196,7 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, req, startTime
                 type,
                 source: 'source_asked'
             });
-            dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
+            saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
         } catch (e) {
             console.warn("refresh saveAuditoryScheduleToDb failed:", e.message);
         }
@@ -1224,5 +1356,10 @@ app.get('/searchStudent', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`server ok!`);
+    console.log(`server ok! prealoading top...`);
+    setImmediate(runTopRecalc);
+    setInterval(runTopRecalc, TOP_RECALC_INTERVAL_MS);
+    setTimeout(runSchedulePreload, 2 * 60 * 1000);
+    setInterval(runSchedulePreload, PRELOAD_INTERVAL_MS);
+    console.log('preloading is complete, functioning as normal');
 });
