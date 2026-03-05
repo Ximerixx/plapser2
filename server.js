@@ -18,6 +18,9 @@ const app = express();
 const port = 3000;
 const TIMEZONE = "Europe/Moscow";
 
+// Статика: max-age в секундах (браузер не перезапросит раньше). Для теста — 1 ч; для прода — 86400 (сутки) или 604800 (неделя).
+const STATIC_CACHE_MAX_AGE_SECONDS = 3600;
+
 // Logging utility
 function getClientIP(req) {
     return req.headers['x-forwarded-for']?.split(',')[0].trim() ||
@@ -119,6 +122,10 @@ app.use(cors({
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// gzip.  клиенты без Accept-Encoding: gzip получают ответ без сжатия.
+const compression = require('compression');
+app.use(compression({ threshold: 1024 })); // сжимать только ответы > 1 KB
 
 app.get("/gen", async (req, res) => {
     const { date, group, type: rawType, tomorrow, subgroup = null, refresh } = req.query;
@@ -1126,9 +1133,19 @@ app.get('/api/auditories', async (req, res) => {
     }
 });
 
+// Cache-Control для HTML-страниц (то же значение, что и для статики)
+app.use((req, res, next) => {
+    if (req.method === 'GET' && ['/gui', '/searchStudent', '/searchTeacher', '/searchAuditory'].includes(req.path)) {
+        res.setHeader('Cache-Control', `public, max-age=${STATIC_CACHE_MAX_AGE_SECONDS}`);
+    }
+    next();
+});
 
-
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', `public, max-age=${STATIC_CACHE_MAX_AGE_SECONDS}`);
+    }
+}));
 
 
 // Роут для /gui
