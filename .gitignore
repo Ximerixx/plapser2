@@ -126,6 +126,7 @@ dist
 .dynamodb/
 
 # SQLite database (server-only; contents not in git)
+db/plapser.db
 db/*.db
 db/*.db-journal
 db/*.db-wal
