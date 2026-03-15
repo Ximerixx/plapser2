@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS request_stats (
 CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at);
 CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key);
 
--- Schedule slots: one row per lesson occurrence (denormalized per group for simple queries)
 CREATE TABLE IF NOT EXISTS schedule_slots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
@@ -77,7 +76,6 @@ CREATE TABLE IF NOT EXISTS schedule_meta (
 
 CREATE INDEX IF NOT EXISTS idx_schedule_meta_lookup ON schedule_meta(entity_type, entity_key, date);
 
--- Топ запросов для предзагрузки: entity_type, entity_key, счётчик, время последней предзагрузки
 CREATE TABLE IF NOT EXISTS preload_state (
   entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
   entity_key TEXT NOT NULL,
