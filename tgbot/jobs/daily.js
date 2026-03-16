@@ -34,12 +34,16 @@ function getBaseDateForScope(scope) {
     return today;
 }
 
+function getCurrentHHMMInTimezone(tz) {
+    const now = new Date();
+    const h = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }).format(now), 10);
+    const m = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: tz, minute: '2-digit' }).format(now), 10);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 async function runDailyJob(ctx) {
     const { db, jsapi, buildUserAgent, T } = ctx;
-    const now = new Date();
-    const h = String(now.getHours()).padStart(2, '0');
-    const m = String(now.getMinutes()).padStart(2, '0');
-    const hhmm = `${h}:${m}`;
+    const hhmm = getCurrentHHMMInTimezone(TIMEZONE);
 
     const due = db.getTgSubscriptionsDueForTime(hhmm);
     if (!due || due.length === 0) return;
