@@ -93,7 +93,8 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             await ctx.reply(L.welcome_private, Markup.inlineKeyboard([
                 [Markup.button.callback(L.add_group, 'pv_add_group'), Markup.button.callback(L.add_teacher, 'pv_add_teacher')],
                 [Markup.button.callback(L.add_auditory, 'pv_add_auditory')],
-                [Markup.button.callback(L.my_subs, 'pv_my_subs'), Markup.button.callback(L.set_time, 'pv_set_time')]
+                [Markup.button.callback(L.my_subs, 'pv_my_subs'), Markup.button.callback(L.set_time, 'pv_set_time')],
+                [Markup.button.callback(L.change_lang, 'pv_set_lang')]
             ]));
         } catch (e) {
             console.error('[tgbot] start', e);
@@ -110,7 +111,21 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             await ctx.reply(L.welcome_private, Markup.inlineKeyboard([
                 [Markup.button.callback(L.add_group, 'pv_add_group'), Markup.button.callback(L.add_teacher, 'pv_add_teacher')],
                 [Markup.button.callback(L.add_auditory, 'pv_add_auditory')],
-                [Markup.button.callback(L.my_subs, 'pv_my_subs'), Markup.button.callback(L.set_time, 'pv_set_time')]
+                [Markup.button.callback(L.my_subs, 'pv_my_subs'), Markup.button.callback(L.set_time, 'pv_set_time')],
+                [Markup.button.callback(L.change_lang, 'pv_set_lang')]
+            ]));
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => {});
+        }
+    });
+
+    bot.action('pv_set_lang', async (ctx) => {
+        try {
+            const lang = db.getTgUserLang(ctx.from.id) || 'ru';
+            const L = T[lang] || T.ru;
+            await ctx.answerCbQuery();
+            await ctx.reply(L.choose_lang, Markup.inlineKeyboard([
+                [Markup.button.callback(L.lang_ru, 'lang_ru'), Markup.button.callback(L.lang_en, 'lang_en')]
             ]));
         } catch (e) {
             ctx.answerCbQuery().catch(() => {});
