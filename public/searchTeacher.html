@@ -63,6 +63,16 @@
             display: inline-block;
         }
         
+        .lesson-subgroup {
+            background: var(--primary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+            margin-left: 6px;
+        }
+        
         .no-lessons {
             text-align: center;
             color: var(--text-light);
@@ -551,7 +561,7 @@
                                                 <strong>${lesson.subject || 'Занятие'}</strong><br>
                                                 ${lesson.room ? `<span class="lesson-room"> ${lesson.room}</span>` : ''}
                                                 ${lesson.group ? `<span class="lesson-group"> ${lesson.group}</span>` : ''}
-                                                ${lesson.subgroup ? ` <small>(${lesson.subgroup})</small>` : ''}
+                                                ${lesson.subgroup ? ` <span class="lesson-subgroup">(${lesson.subgroup})</span>` : ''}
                                             </div>
                                         </div>
                                     `;
@@ -611,7 +621,7 @@
                                         <strong>${lesson.subject || 'Занятие'}</strong><br>
                                         ${lesson.room ? `<span class="lesson-room"> ${lesson.room}</span>` : ''}
                                         ${lesson.group ? `<span class="lesson-group"> ${lesson.group}</span>` : ''}
-                                        ${lesson.subgroup ? ` <small>(${lesson.subgroup})</small>` : ''}
+                                        ${lesson.subgroup ? ` <span class="lesson-subgroup">(${lesson.subgroup})</span>` : ''}
                                     </div>
                                 </div>
                             `;

@@ -14,7 +14,9 @@
         .lesson-time { font-weight: bold; color: var(--primary); font-size: 18px; }
         .lesson-details { margin-top: 8px; color: var(--text); }
         .lesson-room { background: var(--secondary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-right: 10px; }
-        .lesson-group { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; }
+        .lesson-group { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-right: 10px; }
+        .lesson-teacher { background: var(--text-light); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; }
+        .lesson-subgroup { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-left: 6px; }
         .no-lessons { text-align: center; color: var(--text-light); font-style: italic; padding: 20px; }
         .auditory-info { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 15px; text-align: center; }
         .auditory-name { font-size: 20px; font-weight: bold; color: var(--primary); }
@@ -181,7 +183,7 @@
                                                 <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
                                                 ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
                                                 ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
-                                                ${lesson.teacher ? ` <small>${lesson.teacher}</small>` : ''}
+                                                ${lesson.teacher ? ` <span class="lesson-teacher">${lesson.teacher}</span>` : ''}
                                             </div>
                                         </div>
                                     `;
@@ -204,7 +206,7 @@
                                         <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
                                         ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
                                         ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
-                                        ${lesson.teacher ? ` <small>${lesson.teacher}</small>` : ''}
+                                        ${lesson.teacher ? ` <span class="lesson-teacher">${lesson.teacher}</span>` : ''}
                                     </div>
                                 </div>
                             `;
