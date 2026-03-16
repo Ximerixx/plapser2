@@ -8,6 +8,7 @@
 3. **No emojis, just please** - Keep all communication professional and emoji-free
 4. **Do not go further, but do very extensive testing and check everything very carefully and extensively** - Focus on thorough testing and verification rather than adding new features
 5. **Do not suggest new features, do not implement if that is not necessary** - Only implement what is explicitly requested and necessary
+6. **tgbot version (X.Y): when you change tgbot or its DB, update the version** - Version lives in `tgbot/worker.js` as `TELEGRAM_API_VERSION`. Bump **major (X)** when you add or change migrations, tables, or schema in db/db.js for tgbot. Bump **minor (Y)** when you fix bugs or inconsistencies in tgbot code. After changing, update `TELEGRAM_API_VERSION` in tgbot/worker.js and update the version number in this file (see "TELEGRAM BOT VERSIONING" below) and in README.md Telegram section.
 
 ---
 
@@ -666,6 +667,11 @@ location / {
 
 ### Overview
 Optional Telegram bot runs in a separate Worker thread when `TELEGRAM_BOT_TOKEN` is set. Uses shared `jsapi.js` for schedule fetch and stats; lists (groups/teachers/auditories) are fetched from main process API (GET /api/groups etc.) so worker reuses main's in-memory cache. In-worker list cache TTL 60s for inline session.
+
+### TELEGRAM BOT VERSIONING (model must update when changing tgbot/DB)
+- **Current tgbot version: 1.0** (single source of truth: `TELEGRAM_API_VERSION` in `tgbot/worker.js`; this value is sent in `request_stats.user_agent` as `PlapserTelegramAPI/<version>`).
+- **Format X.Y:** First number (major) = changes that require creating or adapting the DB or its components (new tables, migrations, schema changes for tgbot). Second number (minor) = fixes, error corrections, or inconsistencies in tgbot code (no DB schema change).
+- **When you (the model) change tgbot or tgbot-related DB code:** bump the version accordingly: edit `TELEGRAM_API_VERSION` in `tgbot/worker.js`, then update the "Current tgbot version" line in this section and the version line in README.md (Telegram-бот section).
 
 ### Environment
 - `TELEGRAM_BOT_TOKEN` - required to start bot worker

@@ -6,6 +6,7 @@
  */
 const { parentPort, workerData } = require('worker_threads');
 
+/** tgbot version: X.Y — bump major (X) on DB/schema changes, minor (Y) on fixes. Sent in request_stats.user_agent. */
 const TELEGRAM_API_VERSION = '1.0';
 
 function buildUserAgent(mode, userId, chatId, entityType, entityKey, scope) {

@@ -403,6 +403,8 @@ app.use(cors({
 
 ## Telegram-бот
 
+Версия бота: **1.0** (в `user_agent` и в логах). Формат версии **X.Y**: первое число — мажор (миграции БД, изменения схемы или компонентов БД), второе — минор (исправления, устранение несоответствий).
+
 Опциональный Telegram-бот запускается в отдельном потоке (Worker), если задана переменная окружения `TELEGRAM_BOT_TOKEN`. Бот использует общий слой доступа к расписанию (`jsapi.js`) и БД (`db/db.js`); списки групп/преподавателей/аудиторий запрашиваются по HTTP у основного сервера (кэш основного процесса).
 
 **Переменные окружения:**
@@ -418,7 +420,8 @@ app.use(cors({
 **Структура:** `tgbot/worker.js`, `tgbot/handlers/group.js`, `tgbot/handlers/inline.js`, `tgbot/handlers/private.js`, `tgbot/jobs/daily.js`, `tgbot/strings.js`, `tgbot/payload.js`, `tgbot/lists.js`.
 
 **Логирование:** все запросы расписания от бота пишутся в таблицу `request_stats` с полем `user_agent` в формате:  
-`PlapserTelegramAPI/1.0 mode=inline|group|private user=... chat=... entity_type=... entity_key=... scope=...`
+`PlapserTelegramAPI/<version> mode=inline|group|private user=... chat=... entity_type=... entity_key=... scope=...`  
+Версия задаётся переменной `TELEGRAM_API_VERSION` в `tgbot/worker.js`.
 
 **Inline deep link (LUT в БД):** у Telegram лимит **64 символа** на параметр `start`. Таблица `tgbot_inline_lut`: комбинации (entity_type, entity_key, scope, lang) хранятся под случайным 6-символьным кодом (буквы A–Z, a–z, цифры 0–9; 62⁶ кодов). Префикс ссылки `inline_` + код → 13 символов. Коды рандомизированы (нет счётчика), одна таблица без отдельной seq. По нажатию бот ищет запись по коду и отдаёт расписание; для старых ссылок — fallback на base64 (en_t, en_k, scpe, l).
 
