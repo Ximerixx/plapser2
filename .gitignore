@@ -135,6 +135,9 @@ db/*.db-shm
 # tgbot config (secrets); use tgbot/config.example.json as template
 tgbot/config.json
 
+#hide the code-workspace file
+*.code-workspace
+
 # Local directory (if present)
 nd_md/
 
