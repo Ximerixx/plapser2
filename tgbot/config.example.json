@@ -1,5 +1,6 @@
 {
   "TELEGRAM_BOT_TOKEN": "123456:ABC-DEF...",
   "API_BASE_URL": "http://127.0.0.1:3000",
-  "TELEGRAM_BOT_USERNAME": "YourBotName"
+  "TELEGRAM_BOT_USERNAME": "YourBotName",
+  "TELEGRAM_PROXY": "socks5://127.0.0.1:10808"
 }

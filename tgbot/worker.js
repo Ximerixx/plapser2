@@ -2,7 +2,7 @@
 
 /**
  * Telegram bot worker entry. Runs in a separate thread (worker_threads).
- * workerData: { token, apiBaseUrl, botUsername }
+ * workerData: { token, apiBaseUrl, botUsername, proxyUrl }
  */
 const { parentPort, workerData } = require('worker_threads');
 
@@ -19,8 +19,31 @@ function buildUserAgent(mode, userId, chatId, entityType, entityKey, scope) {
     return parts.join(' ');
 }
 
+function createProxyAgent(proxyUrl) {
+    if (!proxyUrl || typeof proxyUrl !== 'string') return null;
+    const s = proxyUrl.trim();
+    if (!s) return null;
+    try {
+        const u = new URL(s);
+        const protocol = (u.protocol || '').replace(/:$/, '').toLowerCase();
+        if (protocol === 'http' || protocol === 'https') {
+            const { HttpsProxyAgent } = require('https-proxy-agent');
+            return new HttpsProxyAgent(s);
+        }
+        if (protocol === 'socks' || protocol === 'socks4' || protocol === 'socks5') {
+            const { SocksProxyAgent } = require('socks-proxy-agent');
+            return new SocksProxyAgent(s);
+        }
+        console.warn('[tgbot] unsupported proxy protocol:', protocol, '- use http, https, socks4, or socks5');
+        return null;
+    } catch (e) {
+        console.warn('[tgbot] proxy URL parse failed:', e.message);
+        return null;
+    }
+}
+
 async function main() {
-    const { token, apiBaseUrl, botUsername } = workerData || {};
+    const { token, apiBaseUrl, botUsername, proxyUrl } = workerData || {};
     if (!token || !apiBaseUrl) {
         console.error('[tgbot] workerData must have token and apiBaseUrl');
         return;
@@ -38,7 +61,14 @@ async function main() {
 
     const { Telegraf, session } = require('telegraf');
 
-    const bot = new Telegraf(token);
+    const telegramOpts = {};
+    const agent = createProxyAgent(proxyUrl);
+    if (agent) {
+        telegramOpts.telegram = { agent };
+        console.log('[tgbot] using proxy for Telegram API');
+    }
+
+    const bot = new Telegraf(token, telegramOpts);
 
     bot.use(session());
 

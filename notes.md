@@ -678,6 +678,7 @@ Optional Telegram bot runs in a separate Worker thread when `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_BOT_TOKEN` - required to start bot worker
 - `API_BASE_URL` - optional, default http://127.0.0.1:3000
 - `TELEGRAM_BOT_USERNAME` - optional, for deep link
+- `TELEGRAM_PROXY` - optional; one proxy node for Bot API: HTTP/HTTPS or SOCKS (http://, https://, socks4://, socks5://). Switch by changing config and restarting.
 - Example file: `tgbot/config.example.json` (in repo); copy to `tgbot/config.json` and fill in values.
 
 ### DB (db/db.js, behind "tgbot integration" banner)

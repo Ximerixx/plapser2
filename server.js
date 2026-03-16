@@ -875,7 +875,8 @@ app.listen(port, () => {
                 workerData: {
                     token,
                     apiBaseUrl,
-                    botUsername: tgbotConfig.botUsername ?? null
+                    botUsername: tgbotConfig.botUsername ?? null,
+                    proxyUrl: tgbotConfig.proxyUrl ?? null
                 }
             });
             tgbotWorker.on('error', (err) => console.error('[tgbot] worker error', err));
