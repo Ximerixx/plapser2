@@ -73,6 +73,16 @@
             display: inline-block;
         }
         
+        .lesson-subgroup {
+            background: var(--primary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+            margin-left: 6px;
+        }
+        
         .no-lessons {
             text-align: center;
             color: var(--text-light);
@@ -590,7 +600,7 @@
                                                 ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
                                                 <span class="lesson-room">${lesson.auditory || lesson.room}</span>
                                                 <span class="lesson-teacher">${lesson.teacher}</span>
-                                                ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
+                                                ${lesson.subgroup ? ` <span class="lesson-subgroup">П/г: ${lesson.subgroup}</span>` : ''}
                                             </div>
                                         </div>
                                     `;
@@ -654,7 +664,7 @@
                                         ${lesson.type ? `<span class="lesson-subject">${lesson.type}</span>` : ''}
                                         <span class="lesson-room">${lesson.auditory || lesson.room}</span>
                                         <span class="lesson-teacher">${lesson.teacher}</span>
-                                        ${lesson.subgroup ? `<br><small>П/г: ${lesson.subgroup}</small>` : ''}
+                                        ${lesson.subgroup ? ` <span class="lesson-subgroup">П/г: ${lesson.subgroup}</span>` : ''}
                                     </div>
                                 </div>
                             `;
