@@ -6,6 +6,9 @@ const path = require('path');
 //const { parseAuditory } = require("./parser/parseAuditory");
 const { Worker } = require('worker_threads');
 
+const { loadTgbotConfig } = require('./tgbot/config.loader');
+const tgbotConfig = loadTgbotConfig();
+
 let dbLayer = null;
 try {
     dbLayer = require("./db/db");
@@ -23,8 +26,8 @@ const TIMEZONE = "Europe/Moscow";
 const STATIC_CACHE_MAX_AGE_SECONDS = 3600;
 
 // Эйджинг: не отдавать из БД данные старше FRESHNESS_HOURS; идти в KIS.
-const FRESHNESS_HOURS = 2;
-const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
+//const FRESHNESS_HOURS = 2;
+//const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
 
 // Предзагрузка топа: окно для подсчёта запросов (дней), лимит на тип, интервалы (мс).
 const PRELOAD_TOP_DAYS = 7;
@@ -863,16 +866,16 @@ app.listen(port, () => {
     setInterval(runSchedulePreload, PRELOAD_INTERVAL_MS);
     console.log('preloading is complete, functioning as normal');
 
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = tgbotConfig.token;
     if (token) {
         const workerPath = path.join(__dirname, 'tgbot', 'worker.js');
-        const apiBaseUrl = process.env.API_BASE_URL || `http://127.0.0.1:${port}`;
+        const apiBaseUrl = tgbotConfig.apiBaseUrl || `http://127.0.0.1:${port}`;
         try {
             const tgbotWorker = new Worker(workerPath, {
                 workerData: {
                     token,
                     apiBaseUrl,
-                    botUsername: process.env.TELEGRAM_BOT_USERNAME || null
+                    botUsername: tgbotConfig.botUsername ?? null
                 }
             });
             tgbotWorker.on('error', (err) => console.error('[tgbot] worker error', err));

@@ -132,6 +132,9 @@ db/*.db-journal
 db/*.db-wal
 db/*.db-shm
 
+# tgbot config (secrets); use tgbot/config.example.json as template
+tgbot/config.json
+
 # Local directory (if present)
 nd_md/
 
