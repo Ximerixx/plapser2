@@ -24,7 +24,8 @@ function loadTgbotConfig() {
     return {
         token: process.env.TELEGRAM_BOT_TOKEN ?? file.TELEGRAM_BOT_TOKEN ?? null,
         apiBaseUrl: process.env.API_BASE_URL ?? file.API_BASE_URL ?? DEFAULTS.API_BASE_URL,
-        botUsername: process.env.TELEGRAM_BOT_USERNAME ?? file.TELEGRAM_BOT_USERNAME ?? null
+        botUsername: process.env.TELEGRAM_BOT_USERNAME ?? file.TELEGRAM_BOT_USERNAME ?? null,
+        proxyUrl: process.env.TELEGRAM_PROXY ?? file.TELEGRAM_PROXY ?? null
     };
 }
 

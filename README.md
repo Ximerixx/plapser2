@@ -412,6 +412,7 @@ app.use(cors({
 - `TELEGRAM_BOT_TOKEN` — токен бота от [@BotFather](https://t.me/BotFather). При отсутствии бот не запускается, сервер работает как раньше.
 - `API_BASE_URL` (опционально) — базовый URL API для воркера (по умолчанию `http://127.0.0.1:3000`).
 - `TELEGRAM_BOT_USERNAME` (опционально) — username бота для deep link, **без символа @** (например `vgltu_plapser_tgbot`). Иначе запрашивается у Telegram при старте.
+- `TELEGRAM_PROXY` (опционально) — одна нода прокси для запросов бота к Telegram: **HTTPS** (`http://host:port`, `https://host:port`) или **SOCKS** (`socks4://`, `socks5://`, `socks://`). Оба варианта поддерживаются; переключение — смена значения в конфиге и перезапуск. Для обхода блокировок: при использовании xray укажите локальный endpoint (например `socks5://127.0.0.1:10808`). MTProxy (MTProto) для ботов не подходит — бот ходит по HTTPS в Bot API.
 
 **Краткий гайд по настройке:**
 1. Создайте бота в [@BotFather](https://t.me/BotFather), получите токен.
@@ -424,7 +425,8 @@ app.use(cors({
 {
   "TELEGRAM_BOT_TOKEN": "123456:ABC-DEF...",
   "API_BASE_URL": "http://127.0.0.1:3000",
-  "TELEGRAM_BOT_USERNAME": "YourBotName"
+  "TELEGRAM_BOT_USERNAME": "YourBotName",
+  "TELEGRAM_PROXY": "socks5://127.0.0.1:10808"
 }
 ```
 
