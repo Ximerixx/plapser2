@@ -9,6 +9,53 @@ function getBaseDate(scope) {
     return d.toISOString().split('T')[0];
 }
 
+function getWeekDates(baseDate) {
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(baseDate + 'T12:00:00');
+        d.setDate(d.getDate() + i);
+        out.push(d.toISOString().split('T')[0]);
+    }
+    return out;
+}
+
+/** Shared: fetch schedule and return formatted text (header + body). Used by private /start inline and by inline results. */
+async function getScheduleText(payload, lang, deps, opts = {}) {
+    const { jsapi, formatScheduleBlock, T } = deps;
+    const L = T[lang] || T.ru;
+    const baseDate = getBaseDate(payload.scope);
+    let data = {};
+    if (payload.entityType === 'group') {
+        const r = await jsapi.getScheduleGroup(payload.entityKey, baseDate, null, opts);
+        data = r.data || {};
+    } else if (payload.entityType === 'teacher') {
+        if (payload.scope === 'week') {
+            for (const date of getWeekDates(baseDate)) {
+                const r = await jsapi.getScheduleTeacher(payload.entityKey, date, opts);
+                if (r && r.data && typeof r.data === 'object') Object.assign(data, r.data);
+            }
+        } else {
+            const r = await jsapi.getScheduleTeacher(payload.entityKey, baseDate, opts);
+            data = r.data || {};
+        }
+    } else {
+        if (payload.scope === 'week') {
+            for (const date of getWeekDates(baseDate)) {
+                const r = await jsapi.getScheduleAuditory(payload.entityKey, date, opts);
+                if (r && r.data && typeof r.data === 'object') Object.assign(data, r.data);
+            }
+        } else {
+            const r = await jsapi.getScheduleAuditory(payload.entityKey, baseDate, opts);
+            data = r.data || {};
+        }
+    }
+    const label = payload.entityType === 'group' ? payload.entityKey : (payload.entityType === 'teacher' ? L.teacher + ' ' + payload.entityKey : L.auditory + ' ' + payload.entityKey);
+    const scopeLabel = payload.scope === 'week' ? L.week : (payload.scope === 'tomorrow' ? L.tomorrow : L.today);
+    const header = `${scopeLabel}: ${label}`;
+    const body = formatScheduleBlock(data, lang, T);
+    return header + '\n\n' + body;
+}
+
 async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, formatScheduleBlock }) {
     bot.start(async (ctx) => {
         try {
@@ -16,31 +63,20 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             if (payloadArg && payloadArg.startsWith('inline_')) {
                 const rest = payloadArg.slice(7);
                 const payload = (db.getTgInlineLutByCode && db.getTgInlineLutByCode(rest)) || decodePayload(rest);
-                if (payload && payload.entityKey) {
-                    const lang = payload.lang || 'ru';
-                    const L = T[lang] || T.ru;
-                    const baseDate = getBaseDate(payload.scope);
-                    const opts = {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('inline', ctx.from?.id, ctx.chat?.id, payload.entityType, payload.entityKey, payload.scope),
-                        startTime: Date.now(),
-                        type: 'json'
-                    };
-                    let data;
-                    if (payload.entityType === 'group') {
-                        const r = await jsapi.getScheduleGroup(payload.entityKey, baseDate, null, opts);
-                        data = r.data;
-                    } else if (payload.entityType === 'teacher') {
-                        const r = await jsapi.getScheduleTeacher(payload.entityKey, baseDate, opts);
-                        data = r.data;
-                    } else {
-                        const r = await jsapi.getScheduleAuditory(payload.entityKey, baseDate, opts);
-                        data = r.data;
-                    }
-                    const text = formatScheduleBlock(data || {}, lang, T);
-                    await ctx.reply(text);
+                if (!payload || !payload.entityKey) {
+                    await ctx.reply((T[ctx.from?.language_code === 'en' ? 'en' : 'ru'] || T.ru).link_expired || 'Ссылка устарела или не найдена. Попробуйте снова выбрать расписание в поиске.');
                     return;
                 }
+                const lang = payload.lang || 'ru';
+                const opts = {
+                    ip: 'telegram',
+                    userAgent: buildUserAgent('inline', ctx.from?.id, ctx.chat?.id, payload.entityType, payload.entityKey, payload.scope),
+                    startTime: Date.now(),
+                    type: 'json'
+                };
+                const text = await getScheduleText(payload, lang, { jsapi, formatScheduleBlock, T }, opts);
+                await ctx.reply(text);
+                return;
             }
 
             const lang = db.getTgUserLang(ctx.from.id);
@@ -173,4 +209,4 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
     });
 }
 
-module.exports = { registerPrivateHandlers };
+module.exports = { registerPrivateHandlers, getScheduleText };

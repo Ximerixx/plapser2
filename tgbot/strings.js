@@ -31,6 +31,7 @@ const T = {
         time_updated: (t) => `Время рассылки обновлено: ${t} МСК.`,
         error: (msg) => `Ошибка: ${msg}`,
         no_lessons: 'Нет пар',
+        link_expired: 'Ссылка устарела или не найдена. Выберите расписание снова в поиске.',
         choose_lang: 'Выберите язык:',
         lang_ru: 'Русский',
         lang_en: 'English'
@@ -64,6 +65,7 @@ const T = {
         time_updated: (t) => `Delivery time updated: ${t} MSK.`,
         error: (msg) => `Error: ${msg}`,
         no_lessons: 'No lessons',
+        link_expired: 'Link expired or not found. Try choosing the schedule again from search.',
         choose_lang: 'Choose language:',
         lang_ru: 'Russian',
         lang_en: 'English'
