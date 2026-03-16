@@ -13,7 +13,9 @@
 
 ## PROJECT OVERVIEW
 
-**Project Name:** Plapser
+**Project Name:** Plapser2 (Plapser)
+**Deploy Path:** /root/plapser2
+**Service Unit:** plapser2.service (systemd)
 **Full Name:** Парсер расписания ВГЛТУ (Schedule Parser for VGLTU)
 **Purpose:** Web application for obtaining class schedules for students and teachers of Voronezh State University of Forestry and Technologies in convenient formats
 **License:** WTFPL (Do What The Fuck You Want To Public License)
@@ -27,16 +29,39 @@
 ## PROJECT STRUCTURE
 
 ### Root Directory Files
-- `server.js` - Main Express server (456 lines) - PRIMARY SERVER FILE
-- `server_ics.js` - Alternative ICS server implementation (134 lines) - NOT USED (legacy/alternative)
-- `package.json` - Node.js dependencies and metadata
-- `README.md` - Project documentation (385 lines)
-- `plapser.service` - systemd service configuration file
+- `server.js` - Main Express server - PRIMARY SERVER FILE; spawns Telegram bot worker when TELEGRAM_BOT_TOKEN is set
+- `jsapi.js` - Shared layer for schedule fetch, list caches, recordStats; used by HTTP server and tgbot worker
+- `server_ics.js` - Alternative ICS server implementation - NOT USED (legacy/alternative)
+- `package.json` - Node.js dependencies and metadata (telegraf, node-cron for tgbot)
+- `README.md` - Project documentation
+- `plapser.service` - systemd template (repo); deploy uses `plapser2.service` (local, not in repo)
 - `LICENSE` - License file
+- `notes.md` - This file; permanent project memory for LLMs
 
 ### Directory: `/parser/`
-- `parseStudent.js` - Student schedule parser (184 lines)
-- `parseTeacher.js` - Teacher schedule parser (125 lines)
+- `parseStudent.js` - Student schedule parser
+- `parseTeacher.js` - Teacher schedule parser
+- `parseAuditory.js` - Auditory (room) schedule parser (async)
+- `normalizeSubject.js` - Subject name normalization (used by parsers)
+
+### Directory: `/db/`
+- `schema.sql` - SQLite schema (groups, teachers, auditories, subjects, request_stats, schedule_slots, schedule_meta)
+- `db.js` - DB layer (schedule read/write, request stats, preload top; tgbot_subscriptions, tgbot_prefs, tgbot_inline_lut and tgbot methods behind "tgbot integration" banner)
+- `plapser.db` - Runtime SQLite DB; NOT in git (.gitignore). Created/updated by server.
+
+### Directory: `/tgbot/`
+- `worker.js` - Entry point for Telegram bot Worker thread (Telegraf; workerData: token, apiBaseUrl, botUsername)
+- `handlers/group.js` - Group chat: /setgroup, /removesubs, add/remove subscriptions
+- `handlers/inline.js` - Inline queries: hints, entity list, legend results; deep link uses LUT code from tgbot_inline_lut (6-char random A–Za–z0–9), fallback base64 payload
+- `handlers/private.js` - Private chat: /start, language choice, add/remove subscriptions, /settime
+- `jobs/daily.js` - Cron (node-cron) for daily send at configured to_send_time (default 07:00 MSK)
+- `strings.js` - RU/EN message templates and detectLangFromQuery
+- `payload.js` - encodePayload/decodePayload for inline deep link (short keys)
+- `lists.js` - Fetch groups/teachers/auditories from main API with 60s in-worker cache
+
+### Directory: `/scripts/`
+- `seed-schedule.js` - Seed DB from parsers (students/teachers/auditories)
+- `check-duplicates.js`, `dedupe-schedule-slots.js`, `link-db-entries.js` - DB maintenance
 
 ### Directory: `/public/`
 - `gui.html` - Main GUI interface - Link generator (157 lines)
@@ -76,9 +101,13 @@
 ### Configuration Constants
 - `port = 3000` - Server listening port
 - `TIMEZONE = "Europe/Moscow"` - Timezone for calendar events
-- `CACHE_TTL = 3600000` - Cache TTL: 1 hour (1,000,000 milliseconds)
+- `CACHE_TTL = 3600000` - Cache TTL: 1 hour (in-memory lists)
+- `STATIC_CACHE_MAX_AGE_SECONDS = 3600` - Static assets cache-control
+- `FRESHNESS_HOURS = 2` - Do not serve schedule from DB older than this; refetch from KIS
+- `PRELOAD_TOP_DAYS`, `PRELOAD_TOP_LIMIT`, `PRELOAD_INTERVAL_MS`, `TOP_RECALC_INTERVAL_MS` - Preload top requested entities into DB
 - `allowedTypes = Set(["json", "json-week", "ics", "ics-week"])` - Valid output formats
 - `modernCalFormat = true` - ICS format flag (affects event summary format)
+- `compression` - Response compression (threshold 1024 bytes)
 
 ### CORS Configuration
 ```javascript
@@ -101,10 +130,10 @@ allowedHeaders: ['Content-Type', 'Authorization']
 **Logic Flow:**
 1. Validates group and type parameters
 2. Validates type against allowedTypes
-3. Date handling:
+3. Date handling (if neither date nor tomorrow is specified, server uses current date):
    - If `tomorrow=true`: baseDate = today + 1 day
    - Else if `date` provided: validates format (YYYY-MM-DD), uses it
-   - Else: baseDate = today
+   - Else: baseDate = today (current date of the server)
 4. For JSON formats:
    - `json`: Single day, calls parseStudent once
    - `json-week`: 7 days, loops 7 times calling parseStudent
@@ -165,6 +194,15 @@ allowedHeaders: ['Content-Type', 'Authorization']
 **Response:** JSON array of teacher names (strings)
 **Cache Implementation:** Same as groups cache
 
+#### GET `/gen_auditory` - Auditory (Room) Schedule
+**Purpose:** Generate schedule for a room/auditory
+**Parameters:** auditory, type, date, tomorrow (same pattern as /gen)
+**Uses:** parseAuditory(baseDate, auditory)
+
+#### GET `/api/auditories` - Get Auditories List
+**Purpose:** Cached list of auditories (from DB or KIS)
+**Caching:** Same pattern as groups/teachers
+
 #### GET `/searchTeach` - Simplified Teacher Search API
 **Purpose:** Quick teacher location lookup for today
 **Parameters:**
@@ -201,6 +239,10 @@ allowedHeaders: ['Content-Type', 'Authorization']
 #### GET `/searchTeacher` - Teacher Search Page
 **Purpose:** Serve searchTeacher.html file
 **Response:** HTML file from `/public/searchTeacher.html`
+
+#### GET `/searchAuditory` - Auditory Search Page
+**Purpose:** Serve searchAuditory.html (if present)
+**Response:** HTML file from `/public/searchAuditory.html`
 
 ### Static File Serving
 - `app.use(express.static(path.join(__dirname, 'public')))` - Serves all files from /public directory
@@ -333,6 +375,13 @@ allowedHeaders: ['Content-Type', 'Authorization']
 ```
 
 **Error Handling:** Throws errors for missing parameters, returns result object
+
+### parseAuditory.js
+
+**Function:** `parseAuditory(date, auditory)` (async)
+**Purpose:** Parse schedule for a given auditory (room) from KIS
+**Source URL:** KIS schedule by auditory (see parser for exact URL)
+**Used by:** server.js /gen_auditory, scripts/seed-schedule.js
 
 ---
 
@@ -536,20 +585,22 @@ allowedHeaders: ['Content-Type', 'Authorization']
 
 ## DEPLOYMENT
 
-### Systemd Service (plapser.service)
-**Location:** `/etc/systemd/system/plapser.service`
+### Systemd Service (this deploy: plapser2.service)
+**Location:** `/etc/systemd/system/plapser2.service` (local file; not in repo)
 **Configuration:**
-- ExecStart: `/root/n/bin/node /root/plapser/server.js`
-- WorkingDirectory: `/root/plapser/`
+- ExecStart: `/root/n/bin/node /root/plapser2/server.js`
+- WorkingDirectory: `/root/plapser2/`
 - Restart: always
 - Environment: NODE_ENV=production
 
+**Repo:** Contains `plapser.service` as template; production uses `plapser2.service` (ignored by git).
+
 **Installation:**
 ```bash
-sudo cp plapser.service /etc/systemd/system/
+sudo cp plapser2.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable plapser
-sudo systemctl start plapser
+sudo systemctl enable plapser2
+sudo systemctl start plapser2
 ```
 
 ### NGINX Reverse Proxy Configuration
@@ -608,6 +659,30 @@ location / {
   - DESCRIPTION (teacher + subgroup)
   - LOCATION (auditory)
   - Timezone: Europe/Moscow
+
+---
+
+## TELEGRAM BOT (tgbot)
+
+### Overview
+Optional Telegram bot runs in a separate Worker thread when `TELEGRAM_BOT_TOKEN` is set. Uses shared `jsapi.js` for schedule fetch and stats; lists (groups/teachers/auditories) are fetched from main process API (GET /api/groups etc.) so worker reuses main's in-memory cache. In-worker list cache TTL 60s for inline session.
+
+### Environment
+- `TELEGRAM_BOT_TOKEN` - required to start bot worker
+- `API_BASE_URL` - optional, default http://127.0.0.1:3000
+- `TELEGRAM_BOT_USERNAME` - optional, for deep link
+
+### DB (db/db.js, behind "tgbot integration" banner)
+- **tgbot_subscriptions**: id, type ('group'|'private'), chat_id, user_id, entity_type, entity_key, to_send_time (HH:MM, default 07:00), requested_at, updated_at. Multiple rows per chat (group) or per user (private).
+- **tgbot_prefs**: user_id, chat_id, lang ('ru'|'en'), created_at, updated_at. One row per user (private) or per chat (group); UNIQUE(user_id), UNIQUE(chat_id).
+- **tgbot_inline_lut**: code TEXT PRIMARY KEY (6-char random, alphabet A–Z a–z 0–9), entity_type, entity_key, scope, lang; UNIQUE(entity_type, entity_key, scope, lang). No seq table; codes randomized for anonymity. Lookup accepts 4-char (legacy) or 6-char.
+- Methods: getTgSubsByChatId, addTgGroupSub, removeTgGroupSub, removeTgGroupSubAll, getTgUserSubscriptions, addTgSubscription, removeTgSubscription, removeTgSubscriptionAll, getTgSubscriptionsDueForTime, getTgUserLang, setTgUserLang, getTgChatLang, setTgChatLang, updateTgUserSendTime.
+
+### request_stats user_agent (bot requests)
+Format: `PlapserTelegramAPI/1.0 mode=inline|group|private user=... chat=... entity_type=... entity_key=... scope=...`
+
+### Inline deep link payload (base64 JSON, short keys)
+- en_t: entity_type; en_k: entity_key; scpe: scope (today/week/tomorrow); l: lang (ru/en). See README and tgbot/payload.js.
 
 ---
 
@@ -732,7 +807,38 @@ location / {
 
 ---
 
+## GIT AND REPO STATE
+
+**Remote:** origin = https://github.com/Ximerixx/plapser2
+**Branch:** master
+
+**Untracked / local-only (do not commit):**
+- `db/plapser.db` - Runtime SQLite DB (in .gitignore: db/plapser.db, db/*.db)
+- `nd_md/` - Local directory (if present)
+- `plapser2.service` - Deploy-specific systemd unit
+
+**Sync from GitHub without data loss:** Run `scripts/sync-from-github.sh`. It backs up db/, nd_md/, plapser2.service; fetches and resets to origin/master; restores backup; restarts plapser2.
+
+---
+
+## EXTERNAL REFERENCE: VGLTU-Schedule (Telegram bot)
+
+**Repo:** https://github.com/FunDan3/VGLTU-Schedule
+**Purpose:** Telegram bot that pushes daily schedule to subscribed users (one group per user).
+
+**Stack:** Python, pyTelegramBotAPI, BeautifulSoup, requests. Storage: subscribers.json.
+**Data source:** apivgltu2.ru (groups list, schedule), vgltu.ru (teachers list for name expansion). Not KIS.
+**Relation to Plapser2:** Alternative consumer of VGLTU schedule; different source (apivgltu2 vs kis.vgltu.ru). A future Telegram layer could use Plapser2 HTTP API as backend instead.
+
+---
+
 ## NOTES LOG
+
+**2025-03 - Telegram bot and jsapi**
+- Added jsapi.js in project root: shared layer for getScheduleGroup/getScheduleTeacher/getScheduleAuditory, getGroupsList/getTeachersList/getAuditoriesList, recordStats, fetch*FromSourceAndSave. server.js refactored to use jsapi; list caches and schedule cache live in jsapi for main process.
+- db/db.js: migration and methods for tgbot_subscriptions, tgbot_prefs, tgbot_inline_lut (code as PK, 6-char random); getOrCreateTgInlineLutId (returns code), getTgInlineLutByCode; tgbot_inline_seq dropped. Banner "tgbot integration" before tgbot code.
+- tgbot/: worker.js (Telegraf, workerData token/apiBaseUrl/botUsername), handlers (group, inline, private), jobs/daily.js (node-cron 07:00 MSK), strings.js (RU/EN), payload.js (base64 fallback en_t/en_k/scpe/l), lists.js (fetch from main API, 60s cache). Inline deep link: LUT in DB (6-char random code). Bot runs in Worker thread; server.js spawns Worker when TELEGRAM_BOT_TOKEN set.
+- README and notes updated with Telegram bot section, env vars, payload dictionary, structure.
 
 **2024-12-XX - Initial Notes Creation**
 - Created notes.md file per user request
@@ -949,6 +1055,7 @@ location / {
 
 ### Date Handling
 - Always uses YYYY-MM-DD format internally
+- If neither `date` nor `tomorrow` is specified, base date is the server's current date
 - Converts from Russian month names in parsers
 - Uses `getDateOffset()` helper for date calculations
 - Handles "tomorrow" flag separately from date parameter
@@ -959,10 +1066,10 @@ location / {
 - Error messages are user-friendly but generic
 
 ### Caching Strategy
-- In-memory cache for groups/teachers lists
-- 1-hour TTL
-- No cache for schedule data (always fresh)
-- Cache updates on-demand when expired
+- In-memory cache for groups/teachers/auditories lists (1-hour TTL)
+- SQLite DB cache for schedule data: store parsed results; serve from DB if age < FRESHNESS_HOURS else refetch from KIS
+- Request stats in DB (request_stats) for analytics and preload-top
+- Preload: periodically refetch top-requested entities into DB
 
 ### ICS Generation
 - Uses ical-generator library (not ics library in main server)
@@ -993,6 +1100,17 @@ location / {
 - KIS HTML uses two style variants for day blocks: `style="margin-bottom: 25px;"` and `style="margin-bottom: 25px"` (no semicolon). Selector changed from exact `[style="margin-bottom: 25px;"]` to `[style*="margin-bottom: 25px"]` so both variants match (including "Нет пар" days).
 - Group names in content cell come after `<br>` and often have trailing/leading whitespace (e.g. "ИС2-241-ОБ \n"). GROUP_REGEX uses ^ and $ so only trimmed strings matched. All text elements are now trimmed before use (`s = element.trim()`), empty strings skipped.
 - Multiple groups: kept single-group check (GROUP_REGEX) and added GROUP_REGEX_GLOBAL to extract all group patterns from one element when several groups appear on one line. Each group is added to lesson.groups without duplicates.
+
+**2026-03 - Sync from GitHub, plapser.db untracked, sync script**
+- Synced local folder with origin (Ximerixx/plapser2). Backup of db/, nd_md/, plapser2.service; git reset --hard origin/master; restore backup; restart plapser2.
+- Removed db/plapser.db from git tracking: added db/plapser.db to .gitignore, git rm --cached db/plapser.db. Commit: "Stop tracking db/plapser.db; add to .gitignore". plapser.db remains on disk for runtime; not in repo.
+- Added scripts/sync-from-github.sh for future syncs (backup, fetch, reset, restore, restart).
+
+**2026-03 - Notes update: project state and external ref**
+- Updated notes.md with: deploy path /root/plapser2, plapser2.service; parser/parseAuditory.js and normalizeSubject.js; db/ (schema, db.js, plapser.db gitignored); scripts/ (sync-from-github.sh, seed, dedupe, etc.); server.js config (FRESHNESS_HOURS, preload, compression); /gen_auditory, /api/auditories, /searchAuditory; DB caching and request_stats; Git/Repo state section; external reference VGLTU-Schedule (FunDan3 Telegram bot).
+
+**2026-03 - README.md update**
+- README aligned with current project: title plapser2; repo clone URL Ximerixx/plapser2; capabilities (auditory, SQLite cache); API section: /gen_auditory, /api/auditories; parsing (parseAuditory); structure (db/, scripts/, parseAuditory, searchAuditory.html); config (FRESHNESS_HOURS); technologies (SQLite, compression); FAQ про БД; известные особенности (plapser.db не в репо).
 
 ---
 

@@ -132,6 +132,15 @@ db/*.db-journal
 db/*.db-wal
 db/*.db-shm
 
+# Local directory (if present)
+nd_md/
+
+#Mask any plans within the root directory
+*TODO*
+TODO*
+*plan*.md
+#notes.md #Saved in root directory of the project
+
 # TernJS port file
 .tern-port
 

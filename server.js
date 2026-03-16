@@ -1,11 +1,10 @@
 const express = require("express");
 const ical = require("ical-generator").default;
-const { parseStudent } = require("./parser/parseStudent");
 const fs = require('fs');
-
 const path = require('path');
-const { parseTeacher } = require("./parser/parseTeacher");
-const { parseAuditory } = require("./parser/parseAuditory");
+//const { parseTeacher } = require("./parser/parseTeacher");
+//const { parseAuditory } = require("./parser/parseAuditory");
+const { Worker } = require('worker_threads');
 
 let dbLayer = null;
 try {
@@ -13,6 +12,8 @@ try {
 } catch (e) {
     console.warn("DB layer not available:", e.message);
 }
+
+const jsapi = require("./jsapi");
 
 const app = express();
 const port = 3000;
@@ -34,42 +35,42 @@ const PRELOAD_INTERVAL_MS = 60 * 60 * 1000;
 // Logging utility
 function getClientIP(req) {
     return req.headers['x-forwarded-for']?.split(',')[0].trim() ||
-           req.headers['x-real-ip'] ||
-           req.connection?.remoteAddress ||
-           req.socket?.remoteAddress ||
-           req.ip ||
-           'unknown';
+        req.headers['x-real-ip'] ||
+        req.connection?.remoteAddress ||
+        req.socket?.remoteAddress ||
+        req.ip ||
+        'unknown';
 }
 
 function parseUserAgent(userAgent) {
     if (!userAgent) return { device: 'unknown', browser: 'unknown', os: 'unknown' };
-    
+
     const ua = userAgent.toLowerCase();
     let device = 'desktop';
     let browser = 'unknown';
     let os = 'unknown';
-    
+
     // Device detection
     if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone') || ua.includes('ipad')) {
         device = 'mobile';
     } else if (ua.includes('tablet') || ua.includes('ipad')) {
         device = 'tablet';
     }
-    
+
     // Browser detection
     if (ua.includes('chrome') && !ua.includes('edg')) browser = 'chrome';
     else if (ua.includes('firefox')) browser = 'firefox';
     else if (ua.includes('safari') && !ua.includes('chrome')) browser = 'safari';
     else if (ua.includes('edg')) browser = 'edge';
     else if (ua.includes('opera') || ua.includes('opr')) browser = 'opera';
-    
+
     // OS detection
     if (ua.includes('windows')) os = 'windows';
     else if (ua.includes('mac os') || ua.includes('macos')) os = 'macos';
     else if (ua.includes('linux')) os = 'linux';
     else if (ua.includes('android')) os = 'android';
     else if (ua.includes('ios') || ua.includes('iphone') || ua.includes('ipad')) os = 'ios';
-    
+
     return { device, browser, os };
 }
 
@@ -82,7 +83,7 @@ function logRequest(req, res, responseTime, statusCode, resultSize = null) {
     const userAgent = req.headers['user-agent'] || 'unknown';
     const referer = req.headers['referer'] || 'direct';
     const uaInfo = parseUserAgent(userAgent);
-    
+
     const logData = {
         timestamp,
         ip: clientIP,
@@ -98,20 +99,20 @@ function logRequest(req, res, responseTime, statusCode, resultSize = null) {
         referer,
         resultSize: resultSize ? `${resultSize} bytes` : null
     };
-    
+
     console.log(JSON.stringify(logData));
 }
 
 // Request logging middleware
 app.use((req, res, next) => {
     const startTime = Date.now();
-    
+
     res.on('finish', () => {
         const responseTime = Date.now() - startTime;
         const resultSize = res.get('content-length');
         logRequest(req, res, responseTime, res.statusCode, resultSize);
     });
-    
+
     next();
 });
 
@@ -170,7 +171,7 @@ app.get("/gen", async (req, res) => {
     try {
         const startTime = Date.now();
         if (forceRefresh) {
-            const { data: fullData } = await fetchStudentFromSourceAndSave(group, baseDate, subgroup, req, startTime, type);
+            const { data: fullData } = await jsapi.fetchStudentFromSourceAndSave(group, baseDate, subgroup, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, null);
             if (type === "json" || type === "json-week") {
                 if (type === "json-week") return res.json(fullData || {});
@@ -221,27 +222,8 @@ app.get("/gen", async (req, res) => {
         }
 
         if (type === "json" || type === "json-week") {
-            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleGroup(group, baseDate, subgroup, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'group',
-                        entityKey: group,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'group', group, type, source);
-            }
             if (type === "json-week") {
                 return res.json(fullData || {});
             } else {
@@ -260,28 +242,8 @@ app.get("/gen", async (req, res) => {
         });
 
         if (type === "ics-week") {
-            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleGroup(group, baseDate, subgroup, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'group',
-                        entityKey: group,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    //dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
-                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'group', group, type, source);
-            }
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -315,27 +277,8 @@ app.get("/gen", async (req, res) => {
                 }
             }
         } else {
-            const { data: fullData, cacheInfo, source } = await getStudentFullData(group, baseDate, subgroup);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleGroup(group, baseDate, subgroup, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'group',
-                        entityKey: group,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveStudentScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'group', group, type, source);
-            }
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -410,7 +353,7 @@ app.get("/gen_teach", async (req, res) => {
     try {
         const startTime = Date.now();
         if (forceRefresh) {
-            const { data: fullData } = await fetchTeacherFromSourceAndSave(teacher, baseDate, req, startTime, type);
+            const { data: fullData } = await jsapi.fetchTeacherFromSourceAndSave(teacher, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, null);
             if (type === "json" || type === "json-week") {
                 if (type === "json-week") return res.json(fullData || {});
@@ -461,27 +404,8 @@ app.get("/gen_teach", async (req, res) => {
         }
 
         if (type === "json" || type === "json-week") {
-            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleTeacher(teacher, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'teacher',
-                        entityKey: teacher,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
-            }
             if (type === "json-week") {
                 return res.json(fullData || {});
             } else {
@@ -499,27 +423,8 @@ app.get("/gen_teach", async (req, res) => {
         });
 
         if (type === "ics-week") {
-            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleTeacher(teacher, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'teacher',
-                        entityKey: teacher,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
-            }
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -554,27 +459,8 @@ app.get("/gen_teach", async (req, res) => {
                 }
             }
         } else {
-            const { data: fullData, cacheInfo, source } = await getTeacherFullData(teacher, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleTeacher(teacher, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'teacher',
-                        entityKey: teacher,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveTeacherScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'teacher', teacher, type, source);
-            }
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
 
             for (const lesson of lessons) {
@@ -649,7 +535,7 @@ app.get("/gen_auditory", async (req, res) => {
     try {
         const startTime = Date.now();
         if (forceRefresh) {
-            const { data: fullData } = await fetchAuditoryFromSourceAndSave(auditory, baseDate, req, startTime, type);
+            const { data: fullData } = await jsapi.fetchAuditoryFromSourceAndSave(auditory, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, null);
             if (type === "json" || type === "json-week") {
                 if (type === "json-week") return res.json(fullData || {});
@@ -700,27 +586,8 @@ app.get("/gen_auditory", async (req, res) => {
         }
 
         if (type === "json" || type === "json-week") {
-            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleAuditory(auditory, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'auditory',
-                        entityKey: auditory,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
-            }
             if (type === "json-week") {
                 return res.json(fullData || {});
             } else {
@@ -738,27 +605,8 @@ app.get("/gen_auditory", async (req, res) => {
         });
 
         if (type === "ics-week") {
-            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleAuditory(auditory, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'auditory',
-                        entityKey: auditory,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
-            }
             if (fullData) {
                 for (const day in fullData) {
                     const lessons = (fullData[day]?.lessons || []).filter(l => l.time && l.time.includes("-"));
@@ -790,27 +638,8 @@ app.get("/gen_auditory", async (req, res) => {
                 }
             }
         } else {
-            const { data: fullData, cacheInfo, source } = await getAuditoryFullData(auditory, baseDate);
+            const { data: fullData, cacheInfo } = await jsapi.getScheduleAuditory(auditory, baseDate, { ip: getClientIP(req), userAgent: req.headers['user-agent'], startTime, type });
             setCacheHeaders(res, cacheInfo);
-            if (source === 'source' && dbLayer && fullData) {
-                try {
-                    const requestStatsId = dbLayer.insertRequestStats({
-                        ip: getClientIP(req),
-                        userAgent: req.headers['user-agent'] || null,
-                        entityType: 'auditory',
-                        entityKey: auditory,
-                        requestedAt: startTime,
-                        processingTimeMs: Date.now() - startTime,
-                        type,
-                        source: 'source'
-                    });
-                    saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
-                } catch (e) {
-                    console.warn("saveAuditoryScheduleToDb (source) failed:", e.message);
-                }
-            } else if (source !== 'source') {
-                recordScheduleStats(req, startTime, 'auditory', auditory, type, source);
-            }
             const lessons = (fullData?.[baseDate]?.lessons || []).filter(l => l.time && l.time.includes("-"));
             for (const lesson of lessons) {
                 const [startTime, endTime] = lesson.time.split("-");
@@ -864,143 +693,13 @@ app.get("/gen_auditory", async (req, res) => {
 
 
 
-////////КЕШИРОВАНИЕ ДАННЫХ ПРЕПОДОВ И ГРУПП СТУДЕНТОВ
-
-const CACHE_TTL = 3600000; // 1 час в миллисекундах
-const SCHEDULE_CACHE_TTL = 7200000; // 2 часа для расписаний
-let groupsCache = {
-    data: [],
-    lastUpdated: 0
-};
-let teachersCache = {
-    data: [],
-    lastUpdated: 0
-};
-let auditoriesCache = {
-    data: [],
-    lastUpdated: 0
-};
-
-// Кэш расписаний: ключ = "student:group:date:subgroup" или "teacher:name:date"
-let scheduleCache = new Map();
-
-// Функции для работы с кэшем расписаний
-function getScheduleCacheKey(type, entity, date, subgroup = null) {
-    if (type === 'student') {
-        return `student:${entity}:${date}:${subgroup || 'all'}`;
-    }
-    if (type === 'teacher') {
-        return `teacher:${entity}:${date}`;
-    }
-    if (type === 'auditory') {
-        return `auditory:${entity}:${date}`;
-    }
-    return `teacher:${entity}:${date}`;
-}
-
-function getCachedSchedule(key) {
-    const cached = scheduleCache.get(key);
-    if (cached && (Date.now() - cached.timestamp < SCHEDULE_CACHE_TTL)) {
-        const age = Date.now() - cached.timestamp;
-        const ttl = SCHEDULE_CACHE_TTL - age;
-        return {
-            data: cached.data,
-            cacheHit: true,
-            cacheAge: age,
-            cacheTTL: ttl
-        };
-    }
-    if (cached) {
-        scheduleCache.delete(key);
-    }
-    return null;
-}
-
 function setCacheHeaders(res, cacheInfo) {
     if (cacheInfo && cacheInfo.cacheHit) {
         res.setHeader('X-Cache-Hit', 'true');
-        res.setHeader('X-Cache-Age', Math.floor(cacheInfo.cacheAge / 1000)); // seconds
-        res.setHeader('X-Cache-TTL', Math.floor(cacheInfo.cacheTTL / 1000)); // seconds
+        res.setHeader('X-Cache-Age', Math.floor(cacheInfo.cacheAge / 1000));
+        res.setHeader('X-Cache-TTL', Math.floor(cacheInfo.cacheTTL / 1000));
     } else {
         res.setHeader('X-Cache-Hit', 'false');
-    }
-}
-
-function setCachedSchedule(key, data) {
-    scheduleCache.set(key, {
-        data: data,
-        timestamp: Date.now()
-    });
-    // Очистка старых записей (если кэш больше 1000 записей)
-    if (scheduleCache.size > 1000) {
-        const now = Date.now();
-        for (const [k, v] of scheduleCache.entries()) {
-            if (now - v.timestamp > SCHEDULE_CACHE_TTL) {
-                scheduleCache.delete(k);
-            }
-        }
-    }
-}
-
-function weekDataEqual(a, b) {
-    if (!a || !b) return false;
-    const keysA = Object.keys(a).filter(k => a[k] && typeof a[k] === 'object');
-    const keysB = Object.keys(b).filter(k => b[k] && typeof b[k] === 'object');
-    if (keysA.length !== keysB.length) return false;
-    const norm = (day) => {
-        const lessons = (day.lessons || []).filter(l => l.time && l.time.includes('-'));
-        if (lessons.length === 0 && day.lessons?.length === 1 && day.lessons[0].status === 'Нет пар') return 'no_lessons';
-        return lessons.map(l => `${l.time}|${l.name || l.subject || ''}|${l.teacher || ''}|${l.auditory || l.room || ''}`).sort().join(';');
-    };
-    for (const date of keysA) {
-        if (!b[date]) return false;
-        if (norm(a[date]) !== norm(b[date])) return false;
-    }
-    return true;
-}
-
-function saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
-    try {
-        const weekFromDb = dbLayer.getStudentScheduleWeek(group, baseDate, null);
-        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
-            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('group', group, date);
-        } else {
-            dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
-        }
-    } catch (e) {
-        console.warn("saveStudentScheduleToDbOrBump failed:", e.message);
-        dbLayer.saveStudentScheduleToDb(group, baseDate, fullData, requestStatsId);
-    }
-}
-
-function saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
-    try {
-        const weekFromDb = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
-        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
-            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('teacher', teacher, date);
-        } else {
-            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
-        }
-    } catch (e) {
-        console.warn("saveTeacherScheduleToDbOrBump failed:", e.message);
-        dbLayer.saveTeacherScheduleToDb(teacher, baseDate, fullData, requestStatsId);
-    }
-}
-
-function saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
-    try {
-        const weekFromDb = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
-        if (weekFromDb && weekDataEqual(fullData, weekFromDb)) {
-            for (const date of Object.keys(fullData)) dbLayer.bumpScheduleCreatedAt('auditory', auditory, date);
-        } else {
-            dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
-        }
-    } catch (e) {
-        console.warn("saveAuditoryScheduleToDbOrBump failed:", e.message);
-        dbLayer.saveAuditoryScheduleToDb(auditory, baseDate, fullData, requestStatsId);
     }
 }
 
@@ -1022,203 +721,24 @@ async function runSchedulePreload() {
         for (const row of list) {
             try {
                 if (row.entity_type === 'group') {
-                    await getStudentFullData(row.entity_key, today, null);
+                    await jsapi.getScheduleGroup(row.entity_key, today, null);
                 } else if (row.entity_type === 'teacher') {
-                    await getTeacherFullData(row.entity_key, today);
+                    await jsapi.getScheduleTeacher(row.entity_key, today);
                 } else if (row.entity_type === 'auditory') {
-                    await getAuditoryFullData(row.entity_key, today);
+                    await jsapi.getScheduleAuditory(row.entity_key, today);
                 }
                 dbLayer.updateLastPreloaded(row.entity_type, row.entity_key);
-            } catch (_) {}
+            } catch (_) { }
         }
     } catch (e) {
         console.warn("runSchedulePreload failed:", e.message);
     }
 }
 
-function recordScheduleStats(req, startTime, entityType, entityKey, responseType, source) {
-    if (dbLayer && dbLayer.insertRequestStats) {
-        try {
-            dbLayer.insertRequestStats({
-                ip: getClientIP(req),
-                userAgent: req.headers['user-agent'] || null,
-                entityType,
-                entityKey,
-                requestedAt: startTime,
-                processingTimeMs: Date.now() - startTime,
-                type: responseType,
-                source: source || 'cache'
-            });
-        } catch (e) {
-            console.warn("request_stats insert failed:", e.message);
-        }
-    }
-}
-
-async function getStudentFullData(group, baseDate, subgroup) {
-    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-    const cacheInfo = getCachedSchedule(cacheKey);
-    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
-    if (dbLayer) {
-        let weekData = null;
-        try {
-            weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
-            if (weekData) {
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('group', group, baseDate);
-                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
-            }
-        } catch (_) {
-            weekData = null;
-        }
-        if (weekData) {
-            setCachedSchedule(cacheKey, weekData);
-            return { data: weekData, cacheInfo: null, source: 'db' };
-        }
-    }
-    const parsed = await parseStudent(baseDate, group, subgroup);
-    if (parsed) setCachedSchedule(cacheKey, parsed);
-    return { data: parsed || {}, cacheInfo: null, source: 'source' };
-}
-
-async function getTeacherFullData(teacher, baseDate) {
-    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-    const cacheInfo = getCachedSchedule(cacheKey);
-    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
-    if (dbLayer) {
-        let weekData = null;
-        try {
-            weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
-            if (weekData) {
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('teacher', teacher, baseDate);
-                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
-            }
-        } catch (_) {
-            weekData = null;
-        }
-        if (weekData) {
-            setCachedSchedule(cacheKey, weekData);
-            return { data: weekData, cacheInfo: null, source: 'db' };
-        }
-    }
-    const parsed = await parseTeacher(baseDate, teacher);
-    if (parsed) setCachedSchedule(cacheKey, parsed);
-    return { data: parsed || {}, cacheInfo: null, source: 'source' };
-}
-
-async function getAuditoryFullData(auditory, baseDate) {
-    const cacheKey = getScheduleCacheKey('auditory', auditory, baseDate);
-    const cacheInfo = getCachedSchedule(cacheKey);
-    if (cacheInfo) return { data: cacheInfo.data, cacheInfo, source: 'cache' };
-    if (dbLayer) {
-        let weekData = null;
-        try {
-            weekData = dbLayer.getAuditoryScheduleWeek(auditory, baseDate);
-            if (weekData) {
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('auditory', auditory, baseDate);
-                if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
-            }
-        } catch (_) {
-            weekData = null;
-        }
-        if (weekData) {
-            setCachedSchedule(cacheKey, weekData);
-            return { data: weekData, cacheInfo: null, source: 'db' };
-        }
-    }
-    const parsed = await parseAuditory(baseDate, auditory);
-    if (parsed) setCachedSchedule(cacheKey, parsed);
-    return { data: parsed || {}, cacheInfo: null, source: 'source' };
-}
-
-/** When user asked for refresh: fetch from source, update cache and DB, log with source_asked */
-async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, req, startTime, type) {
-    const fullData = await parseStudent(baseDate, group, subgroup);
-    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
-    if (fullData) setCachedSchedule(cacheKey, fullData);
-    let requestStatsId = null;
-    if (dbLayer && fullData) {
-        try {
-            requestStatsId = dbLayer.insertRequestStats({
-                ip: getClientIP(req),
-                userAgent: req.headers['user-agent'] || null,
-                entityType: 'group',
-                entityKey: group,
-                requestedAt: startTime,
-                processingTimeMs: Date.now() - startTime,
-                type,
-                source: 'source_asked'
-            });
-            saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId);
-        } catch (e) {
-            console.warn("refresh saveStudentScheduleToDb failed:", e.message);
-        }
-    }
-    return { data: fullData || {} };
-}
-
-async function fetchTeacherFromSourceAndSave(teacher, baseDate, req, startTime, type) {
-    const fullData = await parseTeacher(baseDate, teacher);
-    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
-    if (fullData) setCachedSchedule(cacheKey, fullData);
-    if (dbLayer && fullData) {
-        try {
-            const requestStatsId = dbLayer.insertRequestStats({
-                ip: getClientIP(req),
-                userAgent: req.headers['user-agent'] || null,
-                entityType: 'teacher',
-                entityKey: teacher,
-                requestedAt: startTime,
-                processingTimeMs: Date.now() - startTime,
-                type,
-                source: 'source_asked'
-            });
-            saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId);
-        } catch (e) {
-            console.warn("refresh saveTeacherScheduleToDb failed:", e.message);
-        }
-    }
-    return { data: fullData || {} };
-}
-
-async function fetchAuditoryFromSourceAndSave(auditory, baseDate, req, startTime, type) {
-    const fullData = await parseAuditory(baseDate, auditory);
-    const cacheKey = getScheduleCacheKey('auditory', auditory, baseDate);
-    if (fullData) setCachedSchedule(cacheKey, fullData);
-    if (dbLayer && fullData) {
-        try {
-            const requestStatsId = dbLayer.insertRequestStats({
-                ip: getClientIP(req),
-                userAgent: req.headers['user-agent'] || null,
-                entityType: 'auditory',
-                entityKey: auditory,
-                requestedAt: startTime,
-                processingTimeMs: Date.now() - startTime,
-                type,
-                source: 'source_asked'
-            });
-            saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId);
-        } catch (e) {
-            console.warn("refresh saveAuditoryScheduleToDb failed:", e.message);
-        }
-    }
-    return { data: fullData || {} };
-}
-
-
 app.get('/api/groups', async (req, res) => {
     try {
-        // Если кэш устарел, обновляем его
-        if (Date.now() - groupsCache.lastUpdated > CACHE_TTL) {
-            const response = await fetch('https://kis.vgltu.ru/list?type=Group');
-            const groups = await response.json();
-
-            groupsCache = {
-                data: Array.isArray(groups) ? groups.filter(g => typeof g === 'string' && g.trim() !== '') : [],
-                lastUpdated: Date.now()
-            };
-        }
-
-        res.json(groupsCache.data);
+        const data = await jsapi.getGroupsList();
+        res.json(data);
     } catch (error) {
         console.error('Ошибка при получении групп:', error);
         res.status(500).json({ error: 'Не удалось получить список групп' });
@@ -1227,38 +747,18 @@ app.get('/api/groups', async (req, res) => {
 
 app.get('/api/teachers', async (req, res) => {
     try {
-        // Если кэш устарел, обновляем его
-        if (Date.now() - teachersCache.lastUpdated > CACHE_TTL) {
-            const response = await fetch('https://kis.vgltu.ru/list?type=Teacher');
-            const teachers = await response.json();
-
-            teachersCache = {
-                data: Array.isArray(teachers) ? teachers.filter(g => typeof g === 'string' && g.trim() !== '') : [],
-                lastUpdated: Date.now()
-            };
-        }
-
-        res.json(teachersCache.data);
+        const data = await jsapi.getTeachersList();
+        res.json(data);
     } catch (error) {
-        console.error('Ошибка при получении групп:', error);
-        res.status(500).json({ error: 'Не удалось получить список групп' });
+        console.error('Ошибка при получении преподавателей:', error);
+        res.status(500).json({ error: 'Не удалось получить список преподавателей' });
     }
 });
 
 app.get('/api/auditories', async (req, res) => {
     try {
-        if (Date.now() - auditoriesCache.lastUpdated > CACHE_TTL) {
-            const response = await fetch('https://kis.vgltu.ru/list?type=Auditory');
-            const list = await response.json();
-            const auditories = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim() !== '') : [];
-            if (dbLayer && dbLayer.ensureAuditory) {
-                for (const name of auditories) {
-                    try { dbLayer.ensureAuditory(name); } catch (_) {}
-                }
-            }
-            auditoriesCache = { data: auditories, lastUpdated: Date.now() };
-        }
-        res.json(auditoriesCache.data);
+        const data = await jsapi.getAuditoriesList();
+        res.json(data);
     } catch (error) {
         console.error('Ошибка при получении аудиторий:', error);
         res.status(500).json({ error: 'Не удалось получить список аудиторий' });
@@ -1295,7 +795,7 @@ app.get('/searchTeach', async (req, res) => {
 
     try {
         const today = getDateOffset(0); // Get today's date
-        const teacherSchedule = await parseTeacher(today, teacher);
+        const { data: teacherSchedule } = await jsapi.getScheduleTeacher(teacher, today);
 
         if (!teacherSchedule || !teacherSchedule[today]) {
             return res.json({
@@ -1362,4 +862,23 @@ app.listen(port, () => {
     setTimeout(runSchedulePreload, 2 * 60 * 1000);
     setInterval(runSchedulePreload, PRELOAD_INTERVAL_MS);
     console.log('preloading is complete, functioning as normal');
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (token) {
+        const workerPath = path.join(__dirname, 'tgbot', 'worker.js');
+        const apiBaseUrl = process.env.API_BASE_URL || `http://127.0.0.1:${port}`;
+        try {
+            const tgbotWorker = new Worker(workerPath, {
+                workerData: {
+                    token,
+                    apiBaseUrl,
+                    botUsername: process.env.TELEGRAM_BOT_USERNAME || null
+                }
+            });
+            tgbotWorker.on('error', (err) => console.error('[tgbot] worker error', err));
+            tgbotWorker.on('exit', (code) => { if (code !== 0) console.error('[tgbot] worker exit', code); });
+        } catch (e) {
+            console.error('[tgbot] worker spawn failed', e.message);
+        }
+    }
 });
