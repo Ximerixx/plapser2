@@ -155,9 +155,12 @@ async function parseStudent(date, group, subgroup = null) {
                     if (lesson.subgroup && lesson.subgroup !== subgroupStr) return;
                 }
 
-
-
-
+                lesson.name = lesson.name ?? '';
+                lesson.type = lesson.type ?? '';
+                lesson.auditory = lesson.auditory ?? '';
+                lesson.room = lesson.room ?? '';
+                lesson.teacher = lesson.teacher ?? '';
+                lesson.subgroup = lesson.subgroup ?? '';
 
                 result[dateKey].lessons.push(lesson);
             });

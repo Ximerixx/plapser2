@@ -57,6 +57,30 @@ function setCachedSchedule(key, data) {
     }
 }
 
+function normalizeLesson(lesson) {
+    if (!lesson || lesson.status === 'Нет пар') return lesson;
+    return {
+        ...lesson,
+        name: lesson.name ?? '',
+        type: lesson.type ?? '',
+        auditory: lesson.auditory ?? '',
+        room: lesson.room ?? lesson.auditory ?? '',
+        teacher: lesson.teacher ?? '',
+        subgroup: lesson.subgroup ?? ''
+    };
+}
+
+function normalizeStudentWeekData(data) {
+    if (!data || typeof data !== 'object') return data;
+    const out = {};
+    for (const date of Object.keys(data)) {
+        const day = data[date];
+        if (!day || !day.lessons) { out[date] = day; continue; }
+        out[date] = { ...day, lessons: day.lessons.map(normalizeLesson) };
+    }
+    return out;
+}
+
 function weekDataEqual(a, b) {
     if (!a || !b) return false;
     const keysA = Object.keys(a).filter(k => a[k] && typeof a[k] === 'object');
@@ -142,7 +166,7 @@ async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) {
         if (opts) recordStats({ entityType: 'group', entityKey: group, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
-        return { data: cacheInfo.data, cacheInfo, source: 'cache' };
+        return { data: normalizeStudentWeekData(cacheInfo.data), cacheInfo, source: 'cache' };
     }
     if (dbLayer) {
         let weekData = null;
@@ -156,7 +180,7 @@ async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
         if (weekData) {
             setCachedSchedule(cacheKey, weekData);
             if (opts) recordStats({ entityType: 'group', entityKey: group, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
-            return { data: weekData, cacheInfo: null, source: 'db' };
+            return { data: normalizeStudentWeekData(weekData), cacheInfo: null, source: 'db' };
         }
     }
     const parsed = await parseStudent(baseDate, group, subgroup);
@@ -175,7 +199,7 @@ async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
         }) : null;
         saveStudentScheduleToDbOrBump(group, baseDate, parsed, requestStatsId);
     }
-    return { data: parsed || {}, cacheInfo: null, source: 'source' };
+    return { data: normalizeStudentWeekData(parsed || {}), cacheInfo: null, source: 'source' };
 }
 
 async function getScheduleTeacher(teacher, baseDate, opts = null) {
@@ -365,7 +389,7 @@ async function getAuditoriesList() {
         const auditories = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim() !== '') : [];
         if (dbLayer && dbLayer.ensureAuditory) {
             for (const name of auditories) {
-                try { dbLayer.ensureAuditory(name); } catch (_) {}
+                try { dbLayer.ensureAuditory(name); } catch (_) { }
             }
         }
         auditoriesCache = { data: auditories, lastUpdated: Date.now() };

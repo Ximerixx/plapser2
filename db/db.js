@@ -388,16 +388,16 @@ function getStudentSchedule(groupName, date, subgroup = null) {
     const dateDisplay = formatDateDisplay(date);
     const lessons = rows.map(r => {
         if (subgroup !== undefined && subgroup !== null && r.subgroup && String(r.subgroup) !== String(subgroup)) return null;
-        const auditory = r.auditory_name || '';
+        const auditory = (r.auditory_name != null ? String(r.auditory_name) : '');
         return {
             time: `${r.time_start}-${r.time_end}`,
-            type: r.lesson_type || '',
-            name: r.subject_name || '',
-            subgroup: r.subgroup || '',
+            type: (r.lesson_type != null ? String(r.lesson_type) : ''),
+            name: (r.subject_name != null ? String(r.subject_name) : ''),
+            subgroup: (r.subgroup != null ? String(r.subgroup) : ''),
             groups: [r.group_name],
             auditory,
             room: auditory,
-            teacher: r.teacher_name || ''
+            teacher: (r.teacher_name != null ? String(r.teacher_name) : '')
         };
     }).filter(Boolean);
 
