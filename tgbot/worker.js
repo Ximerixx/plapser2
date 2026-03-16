@@ -56,7 +56,7 @@ async function main() {
     const { formatScheduleBlock } = require('./jobs/daily');
     const { registerGroupHandlers } = require('./handlers/group');
     const { registerInlineHandler } = require('./handlers/inline');
-    const { registerPrivateHandlers } = require('./handlers/private');
+    const { registerPrivateHandlers, getScheduleText } = require('./handlers/private');
     const { startDailyCron } = require('./jobs/daily');
 
     const { Telegraf, session } = require('telegraf');
@@ -93,7 +93,10 @@ async function main() {
     registerInlineHandler(bot, {
         getLists,
         botUsername: username || 'PlapserScheduleBot',
-        db
+        db,
+        getScheduleText,
+        deps: { jsapi, formatScheduleBlock, T },
+        buildUserAgent
     });
 
     registerPrivateHandlers(bot, {
