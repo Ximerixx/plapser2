@@ -7,10 +7,10 @@
 const { parentPort, workerData } = require('worker_threads');
 
 /** tgbot version: X.Y — bump major (X) on DB/schema changes, minor (Y) on fixes. Sent in request_stats.user_agent. */
-const TELEGRAM_API_VERSION = '1.0';
+const PLAPSER_TG_BOT_INTEGRATION_VERSION = '1.0';
 
 function buildUserAgent(mode, userId, chatId, entityType, entityKey, scope) {
-    const parts = [`PlapserTelegramAPI/${TELEGRAM_API_VERSION}`, `mode=${mode}`];
+    const parts = [`PlapserTelegramAPI/${PLAPSER_TG_BOT_INTEGRATION_VERSION}`, `mode=${mode}`];
     if (userId) parts.push(`user=${userId}`);
     if (chatId) parts.push(`chat=${chatId}`);
     if (entityType) parts.push(`entity_type=${entityType}`);
@@ -49,7 +49,7 @@ async function main() {
         try {
             const me = await bot.telegram.getMe();
             username = me.username;
-        } catch (_) {}
+        } catch (_) { }
     }
 
     registerGroupHandlers(bot, {
@@ -77,8 +77,8 @@ async function main() {
     bot.catch((err, ctx) => {
         console.error('[tgbot]', err);
         try {
-            ctx.reply(T.ru.error(err.message)).catch(() => {});
-        } catch (_) {}
+            ctx.reply(T.ru.error(err.message)).catch(() => { });
+        } catch (_) { }
     });
 
     startDailyCron(bot.telegram, { db, jsapi, buildUserAgent, T });
