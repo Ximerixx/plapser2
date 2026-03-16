@@ -16,7 +16,8 @@ function formatScheduleBlock(data, lang, T) {
             if (lesson.status === 'Нет пар' || lesson.status === L.no_lessons) {
                 lines.push('  — ' + (lesson.status || L.no_lessons));
             } else {
-                lines.push(`  ${lesson.time || ''} ${lesson.name || lesson.subject || ''} ${lesson.teacher || ''} ${lesson.auditory || lesson.room || ''}`);
+                const sub = lesson.subgroup ? ` П/г: ${lesson.subgroup}` : '';
+                lines.push(`  ${lesson.time || ''} ${lesson.name || lesson.subject || ''} ${lesson.teacher || ''} ${lesson.auditory || lesson.room || ''}${sub}`);
             }
         }
     }
