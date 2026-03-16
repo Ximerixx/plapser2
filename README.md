@@ -407,17 +407,30 @@ app.use(cors({
 
 Опциональный Telegram-бот запускается в отдельном потоке (Worker), если задана переменная окружения `TELEGRAM_BOT_TOKEN`. Бот использует общий слой доступа к расписанию (`jsapi.js`) и БД (`db/db.js`); списки групп/преподавателей/аудиторий запрашиваются по HTTP у основного сервера (кэш основного процесса).
 
-**Переменные окружения:**
+**Конфигурация:** при старте сервер читает настройки бота из переменных окружения или из файла `tgbot/config.json` (файл в git не попадает). Переменные окружения имеют приоритет над значениями из файла.
+
 - `TELEGRAM_BOT_TOKEN` — токен бота от [@BotFather](https://t.me/BotFather). При отсутствии бот не запускается, сервер работает как раньше.
 - `API_BASE_URL` (опционально) — базовый URL API для воркера (по умолчанию `http://127.0.0.1:3000`).
 - `TELEGRAM_BOT_USERNAME` (опционально) — @username бота для deep link (иначе запрашивается у Telegram).
+
+Пример конфигурационного файла — `tgbot/config.example.json`. Скопируйте его в `tgbot/config.json` и подставьте свои значения (файл `config.json` в репозиторий не коммитится).
+
+Пример содержимого (`tgbot/config.example.json`):
+
+```json
+{
+  "TELEGRAM_BOT_TOKEN": "123456:ABC-DEF...",
+  "API_BASE_URL": "http://127.0.0.1:3000",
+  "TELEGRAM_BOT_USERNAME": "YourBotName"
+}
+```
 
 **Режимы бота:**
 - **Групповой:** бот в группе; команды `/setgroup`, `/removesubs`. Несколько подписок на разные сущности (группы, преподаватели, аудитории) на один чат; ежедневная рассылка в 07:00 МСК.
 - **Inline:** в любом чате ввести @username бота; подсказки «группа / преподаватель / аудитория», выбор сущности и периода (сегодня / неделя / завтра). В результатах показывается легенда; по нажатию открывается бот в ЛС и отправляется расписание.
 - **Личные сообщения:** подписка на несколько сущностей, настройка времени рассылки (`/settime ЧЧ:ММ`), просмотр и удаление подписок.
 
-**Структура:** `tgbot/worker.js`, `tgbot/handlers/group.js`, `tgbot/handlers/inline.js`, `tgbot/handlers/private.js`, `tgbot/jobs/daily.js`, `tgbot/strings.js`, `tgbot/payload.js`, `tgbot/lists.js`.
+**Структура:** `tgbot/worker.js`, `tgbot/config.loader.js`, `tgbot/config.example.json`, `tgbot/handlers/group.js`, `tgbot/handlers/inline.js`, `tgbot/handlers/private.js`, `tgbot/jobs/daily.js`, `tgbot/strings.js`, `tgbot/payload.js`, `tgbot/lists.js`. Рабочий конфиг — `tgbot/config.json` (создаётся вручную из примера, в git не попадает).
 
 **Логирование:** все запросы расписания от бота пишутся в таблицу `request_stats` с полем `user_agent` в формате:  
 `PlapserTelegramAPI/<version> mode=inline|group|private user=... chat=... entity_type=... entity_key=... scope=...`  

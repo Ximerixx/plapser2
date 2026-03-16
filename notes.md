@@ -673,10 +673,12 @@ Optional Telegram bot runs in a separate Worker thread when `TELEGRAM_BOT_TOKEN`
 - **Format X.Y:** First number (major) = changes that require creating or adapting the DB or its components (new tables, migrations, schema changes for tgbot). Second number (minor) = fixes, error corrections, or inconsistencies in tgbot code (no DB schema change).
 - **When you (the model) change tgbot or tgbot-related DB code:** bump the version accordingly: edit `TELEGRAM_API_VERSION` in `tgbot/worker.js`, then update the "Current tgbot version" line in this section and the version line in README.md (Telegram-бот section).
 
-### Environment
+### Environment / Config
+- Config loaded at server start via `tgbot/config.loader.js`: from `tgbot/config.json` (gitignored) if present, then overridden by process.env.
 - `TELEGRAM_BOT_TOKEN` - required to start bot worker
 - `API_BASE_URL` - optional, default http://127.0.0.1:3000
 - `TELEGRAM_BOT_USERNAME` - optional, for deep link
+- Example file: `tgbot/config.example.json` (in repo); copy to `tgbot/config.json` and fill in values.
 
 ### DB (db/db.js, behind "tgbot integration" banner)
 - **tgbot_subscriptions**: id, type ('group'|'private'), chat_id, user_id, entity_type, entity_key, to_send_time (HH:MM, default 07:00), requested_at, updated_at. Multiple rows per chat (group) or per user (private).
