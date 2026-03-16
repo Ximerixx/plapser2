@@ -411,9 +411,12 @@ app.use(cors({
 
 - `TELEGRAM_BOT_TOKEN` — токен бота от [@BotFather](https://t.me/BotFather). При отсутствии бот не запускается, сервер работает как раньше.
 - `API_BASE_URL` (опционально) — базовый URL API для воркера (по умолчанию `http://127.0.0.1:3000`).
-- `TELEGRAM_BOT_USERNAME` (опционально) — @username бота для deep link (иначе запрашивается у Telegram).
+- `TELEGRAM_BOT_USERNAME` (опционально) — username бота для deep link, **без символа @** (например `vgltu_plapser_tgbot`). Иначе запрашивается у Telegram при старте.
 
-Пример конфигурационного файла — `tgbot/config.example.json`. Скопируйте его в `tgbot/config.json` и подставьте свои значения (файл `config.json` в репозиторий не коммитится).
+**Краткий гайд по настройке:**
+1. Создайте бота в [@BotFather](https://t.me/BotFather), получите токен.
+2. В BotFather: включите **Inline Mode**; при желании задайте **Inline placeholder** (подсказка в поле ввода, например «группа, преподаватель или аудитория») и **Set Commands** (список команд с описаниями для меню бота).
+3. Скопируйте `tgbot/config.example.json` в `tgbot/config.json`, укажите `TELEGRAM_BOT_TOKEN` и при необходимости `TELEGRAM_BOT_USERNAME` (только имя, без @). Файл `config.json` в репозиторий не коммитится.
 
 Пример содержимого (`tgbot/config.example.json`):
 
