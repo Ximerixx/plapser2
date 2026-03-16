@@ -49,6 +49,9 @@ async function getScheduleText(payload, lang, deps, opts = {}) {
             data = r.data || {};
         }
     }
+    if (payload.scope === 'today' || payload.scope === 'tomorrow') {
+        data = data[baseDate] != null ? { [baseDate]: data[baseDate] } : {};
+    }
     const label = payload.entityType === 'group' ? payload.entityKey : (payload.entityType === 'teacher' ? L.teacher + ' ' + payload.entityKey : L.auditory + ' ' + payload.entityKey);
     const scopeLabel = payload.scope === 'week' ? L.week : (payload.scope === 'tomorrow' ? L.tomorrow : L.today);
     const header = `${scopeLabel}: ${label}`;
