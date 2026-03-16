@@ -32,13 +32,13 @@ function runMigrations(d) {
     try {
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_request_stats_id ON schedule_slots(request_stats_id)');
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_meta_request_stats_id ON schedule_meta(request_stats_id)');
-    } catch (_) {}
+    } catch (_) { }
     if (!columnExists(d, 'schedule_slots', 'auditory_id')) {
         d.exec('ALTER TABLE schedule_slots ADD COLUMN auditory_id INTEGER REFERENCES auditories(id)');
     }
     try {
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date)');
-    } catch (_) {}
+    } catch (_) { }
     migrateEntityTypeToIncludeAuditory(d);
     migrateSourceAsked(d);
     migrateClassroomsToAuditories(d);
@@ -63,6 +63,96 @@ function runMigrations(d) {
             )
         `);
     }
+    migrateTgbotTables(d);
+}
+
+// ----------- tgbot integration -----------
+function migrateTgbotTables(d) {
+    const hasSubs = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tgbot_subscriptions'").get();
+    if (!hasSubs) {
+        d.exec(`
+            CREATE TABLE tgbot_subscriptions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              type TEXT NOT NULL CHECK (type IN ('group', 'private')),
+              chat_id TEXT,
+              user_id TEXT,
+              entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+              entity_key TEXT NOT NULL,
+              to_send_time TEXT NOT NULL DEFAULT '07:00',
+              requested_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+        `);
+        d.exec('CREATE INDEX IF NOT EXISTS idx_tgbot_subs_chat ON tgbot_subscriptions(chat_id)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_tgbot_subs_user ON tgbot_subscriptions(user_id)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_tgbot_subs_due ON tgbot_subscriptions(to_send_time)');
+    }
+    const hasPrefs = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tgbot_prefs'").get();
+    if (!hasPrefs) {
+        d.exec(`
+            CREATE TABLE tgbot_prefs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id TEXT,
+              chat_id TEXT,
+              lang TEXT NOT NULL CHECK (lang IN ('ru', 'en')),
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              UNIQUE(user_id),
+              UNIQUE(chat_id)
+            )
+        `);
+    }
+    const hasLut = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tgbot_inline_lut'").get();
+    if (!hasLut) {
+        d.exec(`
+            CREATE TABLE tgbot_inline_lut (
+              code TEXT PRIMARY KEY,
+              entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+              entity_key TEXT NOT NULL,
+              scope TEXT NOT NULL CHECK (scope IN ('today', 'week', 'tomorrow')),
+              lang TEXT NOT NULL CHECK (lang IN ('ru', 'en')),
+              UNIQUE(entity_type, entity_key, scope, lang)
+            )
+        `);
+    } else {
+        const info = d.prepare("PRAGMA table_info(tgbot_inline_lut)").all();
+        const hasIdCol = info.some(c => c.name === 'id');
+        if (hasIdCol) {
+            migrateTgbotInlineLutIdToCode(d);
+        }
+        const hasSeq = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tgbot_inline_seq'").get();
+        if (hasSeq) {
+            d.exec('DROP TABLE tgbot_inline_seq');
+        }
+    }
+}
+function migrateTgbotInlineLutIdToCode(d) {
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const R = 64, L = 4;
+    function enc(n) {
+        if (n < 0 || n >= Math.pow(R, L)) return null;
+        let s = '';
+        for (let i = 0; i < L; i++) { s = ALPHABET[n % R] + s; n = Math.floor(n / R); }
+        return s;
+    }
+    const rows = d.prepare('SELECT id, entity_type, entity_key, scope, lang FROM tgbot_inline_lut').all();
+    d.exec(`
+        CREATE TABLE tgbot_inline_lut_new (
+          code TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
+          entity_key TEXT NOT NULL,
+          scope TEXT NOT NULL CHECK (scope IN ('today', 'week', 'tomorrow')),
+          lang TEXT NOT NULL CHECK (lang IN ('ru', 'en')),
+          UNIQUE(entity_type, entity_key, scope, lang)
+        )
+    `);
+    const ins = d.prepare('INSERT INTO tgbot_inline_lut_new (code, entity_type, entity_key, scope, lang) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) {
+        const code = enc(r.id);
+        if (code) ins.run(code, r.entity_type, r.entity_key, r.scope, r.lang);
+    }
+    d.exec('DROP TABLE tgbot_inline_lut');
+    d.exec('ALTER TABLE tgbot_inline_lut_new RENAME TO tgbot_inline_lut');
 }
 
 function migrateClassroomsToAuditories(d) {
@@ -86,7 +176,7 @@ function migrateClassroomsToAuditories(d) {
     }
     try {
         d.exec('DROP TABLE IF EXISTS classrooms');
-    } catch (_) {}
+    } catch (_) { }
     d.pragma('foreign_keys = ON');
 }
 
@@ -110,8 +200,8 @@ function migrateSourceAsked(d) {
         DROP TABLE request_stats;
         ALTER TABLE request_stats_new RENAME TO request_stats;
     `);
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at)'); } catch (_) {}
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key)'); } catch (_) {}
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at)'); } catch (_) { }
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key)'); } catch (_) { }
     d.pragma('foreign_keys = ON');
 }
 
@@ -135,8 +225,8 @@ function migrateEntityTypeToIncludeAuditory(d) {
         DROP TABLE request_stats;
         ALTER TABLE request_stats_new RENAME TO request_stats;
     `);
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at)'); } catch (_) {}
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key)'); } catch (_) {}
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON request_stats(requested_at)'); } catch (_) { }
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_request_stats_entity ON request_stats(entity_type, entity_key)'); } catch (_) { }
 
     const m = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='schedule_meta'").get();
     if (m && m.sql && m.sql.includes("'auditory'")) {
@@ -158,8 +248,8 @@ function migrateEntityTypeToIncludeAuditory(d) {
         DROP TABLE schedule_meta;
         ALTER TABLE schedule_meta_new RENAME TO schedule_meta;
     `);
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_meta_lookup ON schedule_meta(entity_type, entity_key, date)'); } catch (_) {}
-    try { d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_meta_request_stats_id ON schedule_meta(request_stats_id)'); } catch (_) {}
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_meta_lookup ON schedule_meta(entity_type, entity_key, date)'); } catch (_) { }
+    try { d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_meta_request_stats_id ON schedule_meta(request_stats_id)'); } catch (_) { }
     d.pragma('foreign_keys = ON');
 }
 
@@ -725,6 +815,152 @@ function updateLastPreloaded(entityType, entityKey) {
     d.prepare('UPDATE preload_state SET last_preloaded_at = unixepoch() WHERE entity_type = ? AND entity_key = ?').run(entityType, entityKey);
 }
 
+// ----------- tgbot integration (methods) -----------
+function getTgSubsByChatId(chatId) {
+    const d = getDb();
+    return d.prepare('SELECT * FROM tgbot_subscriptions WHERE chat_id = ? AND type = ? ORDER BY id').all(String(chatId), 'group');
+}
+
+function addTgGroupSub(chatId, entityType, entityKey, toSendTime = '07:00') {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    const existing = d.prepare('SELECT id FROM tgbot_subscriptions WHERE chat_id = ? AND type = ? AND entity_type = ? AND entity_key = ?').get(String(chatId), 'group', entityType, entityKey);
+    if (existing) {
+        d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE id = ?').run(toSendTime, now, existing.id);
+        return existing.id;
+    }
+    const r = d.prepare(`
+        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, requested_at, updated_at)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+    `).run('group', String(chatId), entityType, entityKey, toSendTime, now, now);
+    return r.lastInsertRowid;
+}
+
+function removeTgGroupSub(chatId, entityType, entityKey) {
+    const d = getDb();
+    return d.prepare('DELETE FROM tgbot_subscriptions WHERE chat_id = ? AND type = ? AND entity_type = ? AND entity_key = ?').run(String(chatId), 'group', entityType, entityKey);
+}
+
+function removeTgGroupSubAll(chatId) {
+    const d = getDb();
+    return d.prepare('DELETE FROM tgbot_subscriptions WHERE chat_id = ? AND type = ?').run(String(chatId), 'group');
+}
+
+function getTgUserSubscriptions(userId) {
+    const d = getDb();
+    return d.prepare('SELECT * FROM tgbot_subscriptions WHERE user_id = ? AND type = ? ORDER BY id').all(String(userId), 'private');
+}
+
+function addTgSubscription(userId, entityType, entityKey, toSendTime = '07:00') {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    const r = d.prepare(`
+        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, requested_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+    `).run('private', String(userId), entityType, entityKey, toSendTime, now, now);
+    return r.lastInsertRowid;
+}
+
+function removeTgSubscription(userId, subscriptionId) {
+    const d = getDb();
+    return d.prepare('DELETE FROM tgbot_subscriptions WHERE user_id = ? AND type = ? AND id = ?').run(String(userId), 'private', subscriptionId);
+}
+
+function removeTgSubscriptionAll(userId) {
+    const d = getDb();
+    return d.prepare('DELETE FROM tgbot_subscriptions WHERE user_id = ? AND type = ?').run(String(userId), 'private');
+}
+
+function getTgSubscriptionsDueForTime(hhmm) {
+    const d = getDb();
+    return d.prepare('SELECT * FROM tgbot_subscriptions WHERE to_send_time = ?').all(hhmm);
+}
+
+function getTgUserLang(userId) {
+    const d = getDb();
+    const row = d.prepare('SELECT lang FROM tgbot_prefs WHERE user_id = ?').get(String(userId));
+    return row ? row.lang : null;
+}
+
+function setTgUserLang(userId, lang) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    const existing = d.prepare('SELECT id FROM tgbot_prefs WHERE user_id = ?').get(String(userId));
+    if (existing) {
+        d.prepare('UPDATE tgbot_prefs SET lang = ?, updated_at = ? WHERE user_id = ?').run(lang, now, String(userId));
+    } else {
+        d.prepare('INSERT INTO tgbot_prefs (user_id, chat_id, lang, created_at, updated_at) VALUES (?, NULL, ?, ?, ?)').run(String(userId), lang, now, now);
+    }
+}
+
+function getTgChatLang(chatId) {
+    const d = getDb();
+    const row = d.prepare('SELECT lang FROM tgbot_prefs WHERE chat_id = ?').get(String(chatId));
+    return row ? row.lang : null;
+}
+
+function setTgChatLang(chatId, lang) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    const existing = d.prepare('SELECT id FROM tgbot_prefs WHERE chat_id = ?').get(String(chatId));
+    if (existing) {
+        d.prepare('UPDATE tgbot_prefs SET lang = ?, updated_at = ? WHERE chat_id = ?').run(lang, now, String(chatId));
+    } else {
+        d.prepare('INSERT INTO tgbot_prefs (user_id, chat_id, lang, created_at, updated_at) VALUES (NULL, ?, ?, ?, ?)').run(String(chatId), lang, now, now);
+    }
+}
+
+/** Update to_send_time for all private subscriptions of a user. */
+function updateTgUserSendTime(userId, toSendTime) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    return d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE user_id = ? AND type = ?').run(toSendTime, now, String(userId), 'private');
+}
+
+/** Inline LUT: (entity_type, entity_key, scope, lang) <-> random 6-char code. A–Z, a–z, 0–9 => 62^6 codes. */
+const INLINE_LUT_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const INLINE_LUT_CODE_LEN = 6;
+const INLINE_LUT_MAX_ATTEMPTS = 10;
+
+function randomInlineLutCode() {
+    let s = '';
+    for (let i = 0; i < INLINE_LUT_CODE_LEN; i++) {
+        s += INLINE_LUT_ALPHABET[Math.floor(Math.random() * INLINE_LUT_ALPHABET.length)];
+    }
+    return s;
+}
+
+function getOrCreateTgInlineLutId(entityType, entityKey, scope, lang) {
+    const d = getDb();
+    let row = d.prepare('SELECT code FROM tgbot_inline_lut WHERE entity_type = ? AND entity_key = ? AND scope = ? AND lang = ?')
+        .get(entityType, entityKey, scope, lang);
+    if (row) return row.code;
+    const insert = d.transaction(() => {
+        row = d.prepare('SELECT code FROM tgbot_inline_lut WHERE entity_type = ? AND entity_key = ? AND scope = ? AND lang = ?')
+            .get(entityType, entityKey, scope, lang);
+        if (row) return row.code;
+        for (let attempt = 0; attempt < INLINE_LUT_MAX_ATTEMPTS; attempt++) {
+            const code = randomInlineLutCode();
+            try {
+                d.prepare('INSERT INTO tgbot_inline_lut (code, entity_type, entity_key, scope, lang) VALUES (?, ?, ?, ?, ?)')
+                    .run(code, entityType, entityKey, scope, lang);
+                return code;
+            } catch (e) {
+                if (e.code !== 'SQLITE_CONSTRAINT' && e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY') throw e;
+            }
+        }
+        return null;
+    });
+    return insert();
+}
+
+function getTgInlineLutByCode(code) {
+    if (!code || (code.length !== 6 && code.length !== 4)) return null;
+    const d = getDb();
+    const row = d.prepare('SELECT entity_type AS entityType, entity_key AS entityKey, scope, lang FROM tgbot_inline_lut WHERE code = ?').get(code);
+    return row || null;
+}
+
 module.exports = {
     getDb,
     ensureGroup,
@@ -749,5 +985,21 @@ module.exports = {
     updateLastPreloaded,
     saveStudentScheduleToDb,
     saveTeacherScheduleToDb,
-    saveAuditoryScheduleToDb
+    saveAuditoryScheduleToDb,
+    getTgSubsByChatId,
+    addTgGroupSub,
+    removeTgGroupSub,
+    removeTgGroupSubAll,
+    getTgUserSubscriptions,
+    addTgSubscription,
+    removeTgSubscription,
+    removeTgSubscriptionAll,
+    getTgSubscriptionsDueForTime,
+    getTgUserLang,
+    setTgUserLang,
+    getTgChatLang,
+    setTgChatLang,
+    updateTgUserSendTime,
+    getOrCreateTgInlineLutId,
+    getTgInlineLutByCode
 };
