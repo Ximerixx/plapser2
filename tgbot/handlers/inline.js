@@ -28,9 +28,9 @@ async function buildInlineResults(query, botUsername, getLists, lang, db, getSch
     const parts = q.split(/\s+/);
     const first = parts[0];
     let entityType = null;
-    if (/группа|group/.test(first)) entityType = 'group';
-    else if (/преподаватель|teacher|tch/.test(first)) entityType = 'teacher';
-    else if (/аудитория|auditory|aud/.test(first)) entityType = 'auditory';
+    if (/^(группа|група|грп|г|group)$/.test(first)) entityType = 'group';
+    else if (/^(преподаватель|препадователь|препадаватель|припод|препод|п|прпд|учитель|училка|преп|teacher|tch)$/.test(first)) entityType = 'teacher';
+    else if (/^(аудитория|кабинет|каб|ауд|место|auditory|aud)$/.test(first)) entityType = 'auditory';
 
     if (!entityType) return results;
 

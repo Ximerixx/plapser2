@@ -78,8 +78,8 @@ const T = {
 function detectLangFromQuery(query) {
     if (!query || typeof query !== 'string') return 'ru';
     const q = query.trim().toLowerCase();
-    if (/группа|преподаватель|аудитория|сегодня|неделю|завтра/.test(q)) return 'ru';
-    if (/group|teacher|auditory|today|week|tomorrow/.test(q)) return 'en';
+    if (/\b(группа|група|грп|г|преподаватель|препадователь|препадаватель|припод|препод|п|прпд|учитель|училка|преп|аудитория|кабинет|каб|ауд|место|сегодня|неделю|завтра)\b/.test(q)) return 'ru';
+    if (/\b(group|teacher|tch|auditory|aud|today|week|tomorrow)\b/.test(q)) return 'en';
     return 'ru';
 }
 

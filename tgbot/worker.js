@@ -7,7 +7,7 @@
 const { parentPort, workerData } = require('worker_threads');
 
 /** tgbot version: X.Y — bump major (X) on DB/schema changes, minor (Y) on fixes. Sent in request_stats.user_agent. */
-const PLAPSER_TG_BOT_INTEGRATION_VERSION = '1.0';
+const PLAPSER_TG_BOT_INTEGRATION_VERSION = '1.2';
 
 function buildUserAgent(mode, userId, chatId, entityType, entityKey, scope) {
     const parts = [`PlapserTelegramAPI/${PLAPSER_TG_BOT_INTEGRATION_VERSION}`, `mode=${mode}`];
