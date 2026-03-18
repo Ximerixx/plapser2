@@ -5,6 +5,26 @@ const DEFAULT_SEND_TIME = '07:00';
 const TIMEZONE = 'Europe/Moscow';
 const DELAY_BETWEEN_SENDS_MS = 300;
 
+// function formatScheduleBlock(data, lang, T) {
+//     const L = T[lang] || T.ru;
+//     const lines = [];
+//     for (const date of Object.keys(data).sort()) {
+//         const day = data[date];
+//         if (!day || !day.lessons) continue;
+//         lines.push(`\n${day.date || date} (${day.dayOfWeek || ''})`);
+//         for (const lesson of day.lessons) {
+//             if (lesson.status === 'Нет пар' || lesson.status === L.no_lessons) {
+//                 lines.push('  — ' + (lesson.status || L.no_lessons));
+//             } else {
+//                 const sub = lesson.subgroup ? ` П/г: ${lesson.subgroup}` : '';
+//                 lines.push(`  ${lesson.time || ''} ${lesson.name || lesson.subject || ''} ${lesson.teacher || ''} ${lesson.auditory || lesson.room || ''}${sub}`);
+//             }
+//         }
+//     }
+//     return lines.join('\n') || L.no_lessons;
+// }
+
+
 function formatScheduleBlock(data, lang, T) {
     const L = T[lang] || T.ru;
     const lines = [];
@@ -23,6 +43,7 @@ function formatScheduleBlock(data, lang, T) {
     }
     return lines.join('\n') || L.no_lessons;
 }
+
 
 function getBaseDateForScope(scope) {
     const d = new Date();
@@ -95,7 +116,11 @@ async function runDailyJob(ctx) {
                     });
                     data = r.data;
                 }
-                const text = formatScheduleBlock(data || {}, lang, T);
+                // For GROUP chats: send only current day (today, MSK) even if API returned week/multiple days
+                const dayOnly = (data && data[getBaseDateForScope('today')])
+                    ? { [getBaseDateForScope('today')]: data[getBaseDateForScope('today')] }
+                    : {};
+                const text = formatScheduleBlock(dayOnly, lang, T);
                 blocks.push(`${row.entity_type} ${row.entity_key}:\n${text}`);
                 await new Promise(r => setTimeout(r, DELAY_BETWEEN_SENDS_MS));
             }
