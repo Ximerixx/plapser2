@@ -7,20 +7,88 @@ const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 /** First N inline results get full schedule as message_text (sent to chat when user selects); rest keep legend + url. */
 const MAX_RESULTS_WITH_SCHEDULE = 15;
 
-function stripHtmlTags(html) {
-    // Удаляем любые HTML-теги, оставляя только текст.
-    // Динамика у нас уже экранируется, поэтому дополнительных "<" в тексте быть не должно.
-    return String(html ?? '').replace(/<\/?[^>]+>/g, '').trimEnd();
+const TAGS_TO_TRACK = new Set(['b', 'i', 'blockquote']);
+
+function truncateHtmlPreservingTags(html, maxLen) {
+    const s = String(html ?? '');
+    if (s.length <= maxLen) return s;
+
+    // Резервируем место на суффикс и закрывающие теги.
+    // В нашем форматировании это обычно 1-3 тега, но делаем запас на всякий случай.
+    const suffix = '...';
+    const reserve = suffix.length + 100;
+    const maxBodyLen = Math.max(0, maxLen - reserve);
+
+    let out = '';
+    const stack = [];
+
+    const len = s.length;
+    let pos = 0;
+    while (pos < len && out.length < maxBodyLen) {
+        const nextTagStart = s.indexOf('<', pos);
+        if (nextTagStart === -1) {
+            const remaining = s.slice(pos);
+            const canTake = maxBodyLen - out.length;
+            out += remaining.slice(0, canTake);
+            break;
+        }
+
+        // Текст до следующего тега
+        if (nextTagStart > pos) {
+            const textToken = s.slice(pos, nextTagStart);
+            const canTake = maxBodyLen - out.length;
+            if (textToken.length <= canTake) {
+                out += textToken;
+            } else {
+                out += textToken.slice(0, canTake);
+                break;
+            }
+        }
+
+        // Сам тег
+        const tagEnd = s.indexOf('>', nextTagStart);
+        if (tagEnd === -1) break; // странный HTML, просто обрежем по лимиту текста
+
+        const tagToken = s.slice(nextTagStart, tagEnd + 1);
+        const canTakeTag = maxBodyLen - out.length;
+        if (tagToken.length > canTakeTag) break; // не добавляем неполный тег
+
+        out += tagToken;
+
+        // Обновляем стек только для "наших" тегов (Telegram HTML subset)
+        const m = tagToken.match(/^<\/?\s*([a-zA-Z0-9]+)(\s[^>]*)?>$/);
+        if (m) {
+            const tagName = m[1].toLowerCase();
+            const isClosing = /^<\//.test(tagToken);
+            if (TAGS_TO_TRACK.has(tagName)) {
+                if (isClosing) {
+                    if (stack.length && stack[stack.length - 1] === tagName) stack.pop();
+                } else {
+                    stack.push(tagName);
+                }
+            }
+        }
+
+        pos = tagEnd + 1;
+    }
+
+    // Дописываем суффикс и закрывающие теги, чтобы Telegram не ругался на незакрытые блоки.
+    const closing = stack.reverse().map(t => `</${t}>`).join('');
+    let final = out + suffix + closing;
+    if (final.length > maxLen) {
+        // На случай редких ситуаций (слишком много закрывающих тегов) — подрежем суффиксом.
+        final = final.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
+    }
+    return final;
 }
 
-function article(id, title, messageText, description, url, parseMode) {
+function article(id, title, messageText, description, url) {
     const r = {
         type: 'article',
         id,
         title,
-        input_message_content: { message_text: messageText }
+        input_message_content: { message_text: messageText, parse_mode: 'HTML' }
     };
-    if (parseMode) r.input_message_content.parse_mode = parseMode;
     if (description) r.description = description;
     if (url) r.url = url;
     return r;
@@ -80,26 +148,15 @@ async function buildInlineResults(query, botUsername, getLists, lang, db, getSch
                 userAgent: buildUserAgent('inline', ctx?.from?.id, ctx?.chat?.id, d.entityType, d.entityKey, d.scope)
             };
             return getScheduleText({ entityType: d.entityType, entityKey: d.entityKey, scope: d.scope, lang: d.lang }, d.lang, deps, opts)
-                .then(t => {
-                    if (!t) return null;
-                    // Для inline_query Telegram особенно чувствителен к HTML. Поэтому во время inline
-                    // всегда уходим в plain текст (без parse_mode).
-                    const plain = stripHtmlTags(t);
-                    const safe = plain.length > TELEGRAM_MESSAGE_MAX_LENGTH
-                        ? plain.slice(0, TELEGRAM_MESSAGE_MAX_LENGTH - 3) + '...'
-                        : plain;
-                    return { messageText: safe, parseMode: null };
-                })
+                .then(t => (t && t.length > TELEGRAM_MESSAGE_MAX_LENGTH ? truncateHtmlPreservingTags(t, TELEGRAM_MESSAGE_MAX_LENGTH) : t))
                 .catch(() => null);
         })
     );
 
     for (let i = 0; i < descriptors.length; i++) {
         const d = descriptors[i];
-        const schedule = i < scheduleTexts.length ? scheduleTexts[i] : null;
-        const messageText = schedule ? schedule.messageText : d.legend;
-        const parseMode = schedule ? schedule.parseMode : null;
-        results.push(article(d.id, d.title, messageText, d.legend.slice(0, 100), d.url, parseMode));
+        const messageText = i < scheduleTexts.length && scheduleTexts[i] ? scheduleTexts[i] : d.legend;
+        results.push(article(d.id, d.title, messageText, d.legend.slice(0, 100), d.url));
     }
 
     return results;
