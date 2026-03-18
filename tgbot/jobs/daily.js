@@ -107,7 +107,8 @@ function formatScheduleBlock(data, lang, T) {
         for (const time of times) {
             const descriptors = byTime.get(time) || [];
             // Если в одно и то же время есть два занятия, объединяем в один блок цитаты через дефисы.
-            const joined = descriptors.join(' - ');
+            const banner = '-----------------------------------';
+            const joined = descriptors.join(`\n${banner}\n`);
             // В HTML parse_mode Telegram для inline-вставок не поддерживает `<br>`-теги.
             // Поэтому используем обычный перенос строки внутри quote-блока.
             lines.push(`<blockquote>${escapeHtml(time)}\n${joined}</blockquote>`);
