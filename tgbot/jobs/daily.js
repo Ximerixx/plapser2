@@ -38,24 +38,32 @@ function isNoLessons(lesson, L) {
 }
 
 function formatLessonDescriptor(lesson) {
-    const parts = [];
+    // Делаем каждый "кусок" отдельной строкой, чтобы переносы работали
+    // и внутри `<blockquote>` (Telegram parse_mode: HTML).
+    const lines = [];
 
     const title = lesson.name || lesson.subject || '';
-    if (title) parts.push(escapeHtml(title));
+    if (title) lines.push(escapeHtml(title));
 
     const subgroup = lesson.subgroup != null ? String(lesson.subgroup).trim() : '';
-    if (subgroup) parts.push(`П/г: ${escapeHtml(subgroup)}`);
+    if (subgroup) lines.push(`П/г: ${escapeHtml(subgroup)}`);
 
-    const group = lesson.group || (Array.isArray(lesson.groups) ? lesson.groups.join(', ') : '');
-    if (group) parts.push(escapeHtml(group));
+    // "после каждой группы новая строка":
+    // - если есть массив `lesson.groups`, выводим каждый элемент на своей строке
+    // - иначе выводим `lesson.group` как одну строку
+    if (lesson.group) {
+        lines.push(escapeHtml(lesson.group));
+    } else if (Array.isArray(lesson.groups) && lesson.groups.length > 0) {
+        for (const g of lesson.groups) lines.push(escapeHtml(g));
+    }
 
     const teacher = lesson.teacher || '';
-    if (teacher) parts.push(escapeHtml(teacher));
+    if (teacher) lines.push(escapeHtml(teacher));
 
     const room = lesson.auditory || lesson.room || '';
-    if (room) parts.push(escapeHtml(room));
+    if (room) lines.push(escapeHtml(room));
 
-    return parts.join(' ');
+    return lines.join('\n');
 }
 
 function timeSortKey(timeRange) {
