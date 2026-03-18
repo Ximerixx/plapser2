@@ -60,7 +60,7 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             const L = T[lang] || T.ru;
             if (!subs || subs.length === 0) return ctx.reply(L.no_subs);
             const keyboard = subs.map(s => [Markup.button.callback(`${s.entity_type} ${s.entity_key}`, `tg_rm_${s.id}`)]);
-            keyboard.push([Markup.button.callback(L.all_removed, 'tg_rm_all')]);
+            keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'tg_rm_all')]);
             await ctx.reply(L.remove_subs, Markup.inlineKeyboard(keyboard));
         } catch (e) {
             console.error('[tgbot] removesubs', e);
