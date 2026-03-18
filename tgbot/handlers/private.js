@@ -3,6 +3,15 @@
 const { Markup } = require('telegraf');
 const { decodePayload } = require('../payload');
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function getBaseDate(scope) {
     const d = new Date();
     if (scope === 'tomorrow') d.setDate(d.getDate() + 1);
@@ -54,7 +63,7 @@ async function getScheduleText(payload, lang, deps, opts = {}) {
     }
     const label = payload.entityType === 'group' ? payload.entityKey : (payload.entityType === 'teacher' ? L.teacher + ' ' + payload.entityKey : L.auditory + ' ' + payload.entityKey);
     const scopeLabel = payload.scope === 'week' ? L.week : (payload.scope === 'tomorrow' ? L.tomorrow : L.today);
-    const header = `${scopeLabel}: ${label}`;
+    const header = `<b><i>${escapeHtml(scopeLabel)}</i></b>: ${escapeHtml(label)}`;
     const body = formatScheduleBlock(data, lang, T);
     return header + '\n\n' + body;
 }
@@ -78,7 +87,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
                     type: 'json'
                 };
                 const text = await getScheduleText(payload, lang, { jsapi, formatScheduleBlock, T }, opts);
-                await ctx.reply(text);
+                await ctx.reply(text, { parse_mode: 'HTML' });
                 return;
             }
 

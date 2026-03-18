@@ -8,7 +8,12 @@ const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 const MAX_RESULTS_WITH_SCHEDULE = 15;
 
 function article(id, title, messageText, description, url) {
-    const r = { type: 'article', id, title, input_message_content: { message_text: messageText } };
+    const r = {
+        type: 'article',
+        id,
+        title,
+        input_message_content: { message_text: messageText, parse_mode: 'HTML' }
+    };
     if (description) r.description = description;
     if (url) r.url = url;
     return r;
