@@ -7,13 +7,20 @@ const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 /** First N inline results get full schedule as message_text (sent to chat when user selects); rest keep legend + url. */
 const MAX_RESULTS_WITH_SCHEDULE = 15;
 
-function article(id, title, messageText, description, url) {
+function stripHtmlTags(html) {
+    // Удаляем любые HTML-теги, оставляя только текст.
+    // Динамика у нас уже экранируется, поэтому дополнительных "<" в тексте быть не должно.
+    return String(html ?? '').replace(/<\/?[^>]+>/g, '').trimEnd();
+}
+
+function article(id, title, messageText, description, url, parseMode) {
     const r = {
         type: 'article',
         id,
         title,
-        input_message_content: { message_text: messageText, parse_mode: 'HTML' }
+        input_message_content: { message_text: messageText }
     };
+    if (parseMode) r.input_message_content.parse_mode = parseMode;
     if (description) r.description = description;
     if (url) r.url = url;
     return r;
@@ -73,15 +80,26 @@ async function buildInlineResults(query, botUsername, getLists, lang, db, getSch
                 userAgent: buildUserAgent('inline', ctx?.from?.id, ctx?.chat?.id, d.entityType, d.entityKey, d.scope)
             };
             return getScheduleText({ entityType: d.entityType, entityKey: d.entityKey, scope: d.scope, lang: d.lang }, d.lang, deps, opts)
-                .then(t => (t && t.length > TELEGRAM_MESSAGE_MAX_LENGTH ? t.slice(0, TELEGRAM_MESSAGE_MAX_LENGTH - 3) + '...' : t))
+                .then(t => {
+                    if (!t) return null;
+                    // Для inline_query Telegram особенно чувствителен к HTML. Поэтому во время inline
+                    // всегда уходим в plain текст (без parse_mode).
+                    const plain = stripHtmlTags(t);
+                    const safe = plain.length > TELEGRAM_MESSAGE_MAX_LENGTH
+                        ? plain.slice(0, TELEGRAM_MESSAGE_MAX_LENGTH - 3) + '...'
+                        : plain;
+                    return { messageText: safe, parseMode: null };
+                })
                 .catch(() => null);
         })
     );
 
     for (let i = 0; i < descriptors.length; i++) {
         const d = descriptors[i];
-        const messageText = i < scheduleTexts.length && scheduleTexts[i] ? scheduleTexts[i] : d.legend;
-        results.push(article(d.id, d.title, messageText, d.legend.slice(0, 100), d.url));
+        const schedule = i < scheduleTexts.length ? scheduleTexts[i] : null;
+        const messageText = schedule ? schedule.messageText : d.legend;
+        const parseMode = schedule ? schedule.parseMode : null;
+        results.push(article(d.id, d.title, messageText, d.legend.slice(0, 100), d.url, parseMode));
     }
 
     return results;
