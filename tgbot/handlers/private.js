@@ -190,7 +190,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             await ctx.answerCbQuery();
             if (!subs || subs.length === 0) return ctx.reply(L.no_subs);
             const keyboard = subs.map(s => [Markup.button.callback(`${s.entity_type} ${s.entity_key}`, `pv_rm_${s.id}`)]);
-            keyboard.push([Markup.button.callback(L.all_removed, 'pv_rm_all')]);
+            keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'pv_rm_all')]);
             await ctx.reply(L.my_subs, Markup.inlineKeyboard(keyboard));
         } catch (e) {
             ctx.answerCbQuery().catch(() => {});
