@@ -5,6 +5,7 @@ const { normalizeSubjectPrefix } = require('./normalizeSubject');
 
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
 
 async function parseStudent(date, group, subgroup = null) {
     try {
@@ -15,7 +16,8 @@ async function parseStudent(date, group, subgroup = null) {
         const result = {};
 
         // Обработка каждого дня
-        $('div.table > div[style="margin-bottom: 25px;"]').each((_, dayBlock) => {
+        // KIS отдает и "margin-bottom: 25px;" и "margin-bottom: 25px" без точки с запятой — ловим оба варианта
+        $('div.table > div[style*="margin-bottom: 25px"]').each((_, dayBlock) => {
             const $day = $(dayBlock);
             const dateText = $day.find('> div > strong').first().text().trim();
             const dayOfWeek = $day.find('> div').eq(1).text().trim();
@@ -99,17 +101,20 @@ async function parseStudent(date, group, subgroup = null) {
 
                 $content.contents().each((_, el) => {
                     if (el.type === 'text') {
-                        buffer += $(el).text().trim();
+                        buffer += $(el).text();
                     } else if (el.name === 'br') {
-                        if (buffer) elements.push(buffer);
+                        const s = buffer.trim();
+                        if (s) elements.push(s);
                         buffer = '';
                     } else if (el.name === 'a') {
-                        if (buffer) elements.push(buffer);
+                        const s = buffer.trim();
+                        if (s) elements.push(s);
                         elements.push({ type: 'auditory', value: $(el).text().trim() });
                         buffer = '';
                     }
                 });
-                if (buffer) elements.push(buffer);
+                const tail = buffer.trim();
+                if (tail) elements.push(tail);
 
                 // by element things 
                 let hasType = false;
@@ -139,13 +144,22 @@ async function parseStudent(date, group, subgroup = null) {
                         return;
                     }
 
-                    if (GROUP_REGEX.test(element) && !lesson.groups.includes(element)) {
-                        lesson.groups.push(element);
+                    const s = element.trim();
+                    if (GROUP_REGEX.test(s) && !lesson.groups.includes(s)) {
+                        lesson.groups.push(s);
                         return;
                     }
 
-                    if (idx === elements.length - 1 && element.match(/[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/)) {
-                        lesson.teacher = element.replace(/\.$/, '');
+                    const matched = s.match(GROUP_REGEX_GLOBAL);
+                    if (matched) {
+                        matched.forEach((g) => {
+                            if (!lesson.groups.includes(g)) lesson.groups.push(g);
+                        });
+                        return;
+                    }
+
+                    if (idx === elements.length - 1 && s.match(/[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/)) {
+                        lesson.teacher = s.replace(/\.$/, '');
                     }
                 });
 

@@ -1110,6 +1110,9 @@ Format: `PlapserTelegramAPI/1.2 mode=inline|group|private user=... chat=... enti
 - Group names in content cell come after `<br>` and often have trailing/leading whitespace (e.g. "ИС2-241-ОБ \n"). GROUP_REGEX uses ^ and $ so only trimmed strings matched. All text elements are now trimmed before use (`s = element.trim()`), empty strings skipped.
 - Multiple groups: kept single-group check (GROUP_REGEX) and added GROUP_REGEX_GLOBAL to extract all group patterns from one element when several groups appear on one line. Each group is added to lesson.groups without duplicates.
 
+**2026-03-18 - Sync with repo state (applied)**
+- `parser/parseStudent.js`: фактически применены описанные выше фиксы (селектор day-block на `[style*="margin-bottom: 25px"]`, trim текстовых элементов, `GROUP_REGEX_GLOBAL` для нескольких групп в одной строке).
+
 **2026-03 - Sync from GitHub, plapser.db untracked, sync script**
 - Synced local folder with origin (Ximerixx/plapser2). Backup of db/, nd_md/, plapser2.service; git reset --hard origin/master; restore backup; restart plapser2.
 - Removed db/plapser.db from git tracking: added db/plapser.db to .gitignore, git rm --cached db/plapser.db. Commit: "Stop tracking db/plapser.db; add to .gitignore". plapser.db remains on disk for runtime; not in repo.
