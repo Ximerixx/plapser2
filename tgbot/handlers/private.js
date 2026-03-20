@@ -28,6 +28,18 @@ function getWeekDates(baseDate) {
     return out;
 }
 
+function normalizeHHMM(text) {
+    const s = String(text ?? '').trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+    if (h < 0 || h > 23) return null;
+    if (min < 0 || min > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 /** Shared: fetch schedule and return formatted text (header + body). Used by private /start inline and by inline results. */
 async function getScheduleText(payload, lang, deps, opts = {}) {
     const { jsapi, formatScheduleBlock, T } = deps;
@@ -168,12 +180,17 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
                 await ctx.reply(L.sub_added(`${pending} ${text}`));
                 return;
             }
-            if (session.pendingSetTime && /^\d{1,2}:\d{2}$/.test(text)) {
-                db.updateTgUserSendTime(ctx.from.id, text);
-                delete session.pendingSetTime;
+            if (session.pendingSetTime) {
+                const normalized = normalizeHHMM(text);
                 const lang = db.getTgUserLang(ctx.from.id) || 'ru';
                 const L = T[lang] || T.ru;
-                await ctx.reply(L.time_updated(text));
+                if (!normalized) {
+                    await ctx.reply(L.set_time_prompt);
+                    return;
+                }
+                db.updateTgUserSendTime(ctx.from.id, normalized);
+                delete session.pendingSetTime;
+                await ctx.reply(L.time_updated(normalized));
                 return;
             }
             next();
