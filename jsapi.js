@@ -8,6 +8,7 @@
 const { parseStudent } = require('./parser/parseStudent');
 const { parseTeacher } = require('./parser/parseTeacher');
 const { parseAuditory } = require('./parser/parseAuditory');
+const axios = require('axios');
 
 let dbLayer = null;
 try {
@@ -360,8 +361,7 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
 /** Списки групп (для основного процесса — in-memory кэш; воркер вызывает свой API). */
 async function getGroupsList() {
     if (Date.now() - groupsCache.lastUpdated > LIST_CACHE_TTL) {
-        const response = await fetch('https://kis.vgltu.ru/list?type=Group');
-        const groups = await response.json();
+        const { data: groups } = await axios.get('https://kis.vgltu.ru/list?type=Group', { timeout: 10000 });
         groupsCache = {
             data: Array.isArray(groups) ? groups.filter(g => typeof g === 'string' && g.trim() !== '') : [],
             lastUpdated: Date.now()
@@ -372,8 +372,7 @@ async function getGroupsList() {
 
 async function getTeachersList() {
     if (Date.now() - teachersCache.lastUpdated > LIST_CACHE_TTL) {
-        const response = await fetch('https://kis.vgltu.ru/list?type=Teacher');
-        const teachers = await response.json();
+        const { data: teachers } = await axios.get('https://kis.vgltu.ru/list?type=Teacher', { timeout: 10000 });
         teachersCache = {
             data: Array.isArray(teachers) ? teachers.filter(t => typeof t === 'string' && t.trim() !== '') : [],
             lastUpdated: Date.now()
@@ -384,8 +383,7 @@ async function getTeachersList() {
 
 async function getAuditoriesList() {
     if (Date.now() - auditoriesCache.lastUpdated > LIST_CACHE_TTL) {
-        const response = await fetch('https://kis.vgltu.ru/list?type=Auditory');
-        const list = await response.json();
+        const { data: list } = await axios.get('https://kis.vgltu.ru/list?type=Auditory', { timeout: 10000 });
         const auditories = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim() !== '') : [];
         if (dbLayer && dbLayer.ensureAuditory) {
             for (const name of auditories) {
