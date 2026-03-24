@@ -5,6 +5,7 @@ const path = require('path');
 //const { parseTeacher } = require("./parser/parseTeacher");
 //const { parseAuditory } = require("./parser/parseAuditory");
 const { Worker } = require('worker_threads');
+const cron = require('node-cron');
 
 const { loadTgbotConfig } = require('./tgbot/config.loader');
 const tgbotConfig = loadTgbotConfig();
@@ -34,6 +35,12 @@ const PRELOAD_TOP_DAYS = 7;
 const PRELOAD_TOP_LIMIT = 5;
 const TOP_RECALC_INTERVAL_MS = 30 * 60 * 1000;  // пересчёт топа в 2 раза чаще предзагрузки
 const PRELOAD_INTERVAL_MS = 60 * 60 * 1000;
+
+const NIGHTLY_WARMUP_ENABLED = (process.env.NIGHTLY_WARMUP_ENABLED || 'true') === 'true';
+const NIGHTLY_WARMUP_TIMEZONE = process.env.NIGHTLY_WARMUP_TIMEZONE || 'Europe/Moscow';
+const NIGHTLY_WARMUP_DELAY_MS = Number(process.env.NIGHTLY_WARMUP_DELAY_MS || '1');
+const NIGHTLY_WARMUP_RUN_ON_START = (process.env.NIGHTLY_WARMUP_RUN_ON_START || 'true') === 'true';
+let isWarmupRunning = false;
 
 // Logging utility
 function getClientIP(req) {
@@ -738,6 +745,45 @@ async function runSchedulePreload() {
     }
 }
 
+async function runNightlyWarmupJob(reason = 'schedule') {
+    if (isWarmupRunning) {
+        console.log(`[warmup] skipped (${reason}): already running`);
+        return;
+    }
+    isWarmupRunning = true;
+    const startedAt = Date.now();
+    try {
+        const baseDate = getDateOffset(0);
+        console.log(`[warmup] started reason=${reason} date=${baseDate} delayMs=${NIGHTLY_WARMUP_DELAY_MS}`);
+        const stats = await jsapi.warmupAllSchedulesForDate(baseDate, {
+            delayMs: Number.isFinite(NIGHTLY_WARMUP_DELAY_MS) ? NIGHTLY_WARMUP_DELAY_MS : 80,
+            userAgentBase: `PlapserWarmup/1.0 reason=${reason}`,
+            ip: 'warmup',
+            onProgress: (p) => {
+                if (p.stage.endsWith('_progress')) {
+                    const etaSec = p.etaMs != null ? Math.ceil(p.etaMs / 1000) : '?';
+                    const elapsedSec = Math.ceil(p.elapsedMs / 1000);
+                    console.log(`[warmup] ${p.stage} ${p.processedItems}/${p.totalItems} elapsed=${elapsedSec}s eta=${etaSec}s`);
+                    return;
+                }
+                if (p.stage === 'done') {
+                    const elapsedSec = Math.ceil(p.elapsedMs / 1000);
+                    console.log(`[warmup] progress done ${p.processedItems}/${p.totalItems} elapsed=${elapsedSec}s`);
+                } else {
+                    console.log(`[warmup] ${p.stage}`);
+                }
+            }
+        });
+        const elapsedSec = Math.ceil((Date.now() - startedAt) / 1000);
+        console.log(`[warmup] completed in ${elapsedSec}s`, JSON.stringify(stats));
+    } catch (e) {
+        console.error('[warmup] failed:', e.message);
+    } finally {
+        isWarmupRunning = false;
+        console.log('[warmup] status=idle');
+    }
+}
+
 app.get('/api/groups', async (req, res) => {
     try {
         const data = await jsapi.getGroupsList();
@@ -833,6 +879,59 @@ app.get('/api/free-auditories/by-room', (req, res) => {
     } catch (e) {
         console.error('free-auditories/by-room failed:', e);
         return res.status(500).json({ error: 'Failed to load free slots by auditory' });
+    }
+});
+
+app.get('/api/free-auditories/buildings', (req, res) => {
+    try {
+        const buildings = jsapi.getNormalizedBuildings();
+        return res.json({ count: buildings.length, buildings });
+    } catch (e) {
+        console.error('free-auditories/buildings failed:', e);
+        return res.status(500).json({ error: 'Failed to load buildings list' });
+    }
+});
+
+app.get('/api/free-auditories/auditories', (req, res) => {
+    const { building } = req.query;
+    try {
+        const auditories = jsapi.getNormalizedAuditories(building || null);
+        return res.json({
+            building: building ? String(building).trim().toUpperCase() : null,
+            count: auditories.length,
+            auditories
+        });
+    } catch (e) {
+        console.error('free-auditories/auditories failed:', e);
+        return res.status(500).json({ error: 'Failed to load auditories list' });
+    }
+});
+
+app.get('/api/free-auditories/types', (req, res) => {
+    const { building } = req.query;
+    try {
+        const types = jsapi.getNormalizedRoomTypes(building || null);
+        return res.json({
+            building: building ? String(building).trim().toUpperCase() : null,
+            count: types.length,
+            types
+        });
+    } catch (e) {
+        console.error('free-auditories/types failed:', e);
+        return res.status(500).json({ error: 'Failed to load room types list' });
+    }
+});
+
+app.post('/api/free-auditories/rebuild-normalized', (req, res) => {
+    try {
+        if (!dbLayer || !dbLayer.rebuildNormalizedAuditories) {
+            return res.status(503).json({ error: 'DB layer not available' });
+        }
+        dbLayer.rebuildNormalizedAuditories();
+        return res.json({ ok: true });
+    } catch (e) {
+        console.error('free-auditories/rebuild-normalized failed:', e);
+        return res.status(500).json({ error: 'Failed to rebuild normalized auditories' });
     }
 });
 
@@ -933,6 +1032,15 @@ app.listen(port, () => {
     setTimeout(runSchedulePreload, 2 * 60 * 1000);
     setInterval(runSchedulePreload, PRELOAD_INTERVAL_MS);
     console.log('preloading is complete, functioning as normal');
+    if (NIGHTLY_WARMUP_ENABLED) {
+        cron.schedule('0 0 * * *', () => {
+            runNightlyWarmupJob('cron').catch(() => { });
+        }, { timezone: NIGHTLY_WARMUP_TIMEZONE });
+        console.log(`[warmup] nightly warmup enabled at 00:00 (${NIGHTLY_WARMUP_TIMEZONE})`);
+        if (NIGHTLY_WARMUP_RUN_ON_START) {
+            runNightlyWarmupJob('startup').catch(() => { });
+        }
+    }
 
     const token = tgbotConfig.token;
     if (token) {

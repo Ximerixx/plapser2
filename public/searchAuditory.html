@@ -54,6 +54,7 @@
         <div class="input-group">
             <input type="text" id="building" class="input-field" placeholder=" " value="ГЛ">
             <label class="input-label">Корпус (например ГЛ, 7К, 9К)</label>
+            <ul id="building-list" class="dropdown"></ul>
         </div>
 
         <div class="mode-row" id="free-search-modes">
@@ -72,6 +73,7 @@
         <div class="input-group" id="type-group" style="display:none;">
             <input type="text" id="auditory-type" class="input-field" placeholder=" ">
             <label class="input-label">Тип аудитории (лаб, комп, пр, лек)</label>
+            <ul id="type-list" class="dropdown"></ul>
         </div>
 
         <div id="slots-section">
@@ -106,9 +108,11 @@
 
             const dateInput = document.getElementById('date');
             const buildingInput = document.getElementById('building');
+            const buildingList = document.getElementById('building-list');
             const auditoryInput = document.getElementById('auditory');
             const auditoryTypeInput = document.getElementById('auditory-type');
             const auditoryList = document.getElementById('auditory-list');
+            const typeList = document.getElementById('type-list');
             const auditoryGroup = document.getElementById('auditory-group');
             const typeGroup = document.getElementById('type-group');
             const freeSearchModes = document.getElementById('free-search-modes');
@@ -123,10 +127,23 @@
             const pageModeRadios = document.querySelectorAll('input[name="page-mode"]');
             const modeRadios = document.querySelectorAll('input[name="search-mode"]');
 
-            let allAuditories = [];
+            let rawAuditories = [];
+            let normalizedAuditories = [];
+            let allBuildings = [];
+            let allTypes = [];
             let selectedSlot = '';
             const today = new Date();
             dateInput.valueAsDate = today;
+
+            function formatRoomTypeLabel(type) {
+                const t = String(type || '').trim().toLowerCase();
+                if (t === 'лаб') return 'Лаб';
+                if (t === 'комп') return 'Комп';
+                if (t === 'лек') return 'Лек';
+                if (t === 'пр') return 'Пр';
+                if (t === 'англ') return 'Англ';
+                return type || '—';
+            }
 
             function getMode() {
                 return document.querySelector('input[name="search-mode"]:checked').value;
@@ -158,6 +175,7 @@
                 refreshButton.style.display = freeMode ? 'none' : 'inline-block';
                 searchButton.textContent = freeMode ? 'Найти свободные' : 'Показать расписание';
                 applyModeVisibility();
+                updateDropdown();
             }
 
             clearButton.addEventListener('click', function (e) {
@@ -168,6 +186,8 @@
             });
 
             auditoryInput.addEventListener('input', updateDropdown);
+            buildingInput.addEventListener('input', updateBuildingDropdown);
+            auditoryTypeInput.addEventListener('input', updateTypeDropdown);
             searchButton.addEventListener('click', () => {
                 if (getPageMode() === 'free') return searchFreeAuditories();
                 return searchAuditoryLessons(false);
@@ -176,16 +196,58 @@
             pageModeRadios.forEach(r => r.addEventListener('change', applyPageModeVisibility));
             modeRadios.forEach(r => r.addEventListener('change', applyModeVisibility));
             dateInput.addEventListener('change', loadSlots);
-            buildingInput.addEventListener('change', loadSlots);
+            buildingInput.addEventListener('change', async () => {
+                await Promise.all([loadSlots(), fetchNormalizedAuditories(), fetchNormalizedTypes()]);
+            });
 
             async function fetchAuditories() {
                 try {
                     const response = await fetch('/api/auditories');
                     if (!response.ok) throw new Error('HTTP error');
-                    allAuditories = await response.json();
+                    rawAuditories = await response.json();
                     updateDropdown();
                 } catch (error) {
                     console.error('Ошибка загрузки аудиторий:', error);
+                }
+            }
+
+            async function fetchBuildings() {
+                try {
+                    const response = await fetch('/api/free-auditories/buildings');
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Не удалось загрузить корпуса');
+                    allBuildings = data.buildings || [];
+                    updateBuildingDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки корпусов:', error);
+                }
+            }
+
+            async function fetchNormalizedAuditories() {
+                const building = buildingInput.value.trim();
+                try {
+                    const query = building ? `?building=${encodeURIComponent(building)}` : '';
+                    const response = await fetch(`/api/free-auditories/auditories${query}`);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Не удалось загрузить нормализованные аудитории');
+                    normalizedAuditories = (data.auditories || []).map(a => a.rawName).filter(Boolean);
+                    updateDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки нормализованных аудиторий:', error);
+                }
+            }
+
+            async function fetchNormalizedTypes() {
+                const building = buildingInput.value.trim();
+                try {
+                    const query = building ? `?building=${encodeURIComponent(building)}` : '';
+                    const response = await fetch(`/api/free-auditories/types${query}`);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Не удалось загрузить типы');
+                    allTypes = data.types || [];
+                    updateTypeDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки типов:', error);
                 }
             }
 
@@ -193,7 +255,8 @@
                 const value = auditoryInput.value.toLowerCase();
                 auditoryList.innerHTML = '';
                 if (!value) return;
-                const filtered = allAuditories.filter(a => a.toLowerCase().includes(value)).slice(0, 10);
+                const source = getPageMode() === 'free' ? normalizedAuditories : rawAuditories;
+                const filtered = source.filter(a => String(a).toLowerCase().includes(value)).slice(0, 10);
                 filtered.forEach(a => {
                     const li = document.createElement('li');
                     li.textContent = a;
@@ -203,6 +266,41 @@
                         auditoryList.innerHTML = '';
                     });
                     auditoryList.appendChild(li);
+                });
+            }
+
+            function updateBuildingDropdown() {
+                const value = buildingInput.value.toLowerCase();
+                buildingList.innerHTML = '';
+                if (!value) return;
+                const filtered = allBuildings.filter(b => b.toLowerCase().includes(value)).slice(0, 10);
+                filtered.forEach(b => {
+                    const li = document.createElement('li');
+                    li.textContent = b;
+                    li.classList.add('dropdown-item');
+                    li.addEventListener('click', async () => {
+                        buildingInput.value = b;
+                        buildingList.innerHTML = '';
+                        await Promise.all([loadSlots(), fetchNormalizedAuditories(), fetchNormalizedTypes()]);
+                    });
+                    buildingList.appendChild(li);
+                });
+            }
+
+            function updateTypeDropdown() {
+                const value = auditoryTypeInput.value.toLowerCase();
+                typeList.innerHTML = '';
+                if (!value) return;
+                const filtered = allTypes.filter(t => t.toLowerCase().includes(value)).slice(0, 10);
+                filtered.forEach(t => {
+                    const li = document.createElement('li');
+                    li.textContent = t;
+                    li.classList.add('dropdown-item');
+                    li.addEventListener('click', () => {
+                        auditoryTypeInput.value = t;
+                        typeList.innerHTML = '';
+                    });
+                    typeList.appendChild(li);
                 });
             }
 
@@ -219,10 +317,16 @@
                 slotButtonsContainer.innerHTML = '<div class="meta">Загрузка слотов...</div>';
                 try {
                     const url = `/api/free-auditories/slots?date=${encodeURIComponent(date)}&building=${encodeURIComponent(building)}`;
-                    const response = await fetch(url);
-                    const data = await response.json();
+                    let response = await fetch(url);
+                    let data = await response.json();
                     if (!response.ok) throw new Error(data.error || 'Не удалось загрузить слоты');
-                    const slots = data.slots || [];
+                    let slots = data.slots || [];
+                    // If building filter produced empty list, show global slots for selected day.
+                    if (!slots.length) {
+                        response = await fetch(`/api/free-auditories/slots?date=${encodeURIComponent(date)}`);
+                        data = await response.json();
+                        if (response.ok) slots = data.slots || [];
+                    }
                     slotButtonsContainer.innerHTML = '';
                     if (!slots.length) {
                         selectedSlot = '';
@@ -377,7 +481,7 @@
                             html += `
                                 <div class="item-card">
                                     <div class="item-title">${item.rawName}</div>
-                                    <div class="meta">Номер: ${item.roomNumber || '—'} · Тип: ${item.roomType || '—'} · Корпус: ${item.building || '—'}</div>
+                                    <div class="meta">Номер: ${item.roomNumber || '—'} · Тип: ${formatRoomTypeLabel(item.roomType)} · Корпус: ${item.building || '—'}</div>
                                 </div>
                             `;
                         });
@@ -388,6 +492,9 @@
             }
 
             fetchAuditories();
+            fetchBuildings();
+            fetchNormalizedAuditories();
+            fetchNormalizedTypes();
             applyPageModeVisibility();
             applyModeVisibility();
             loadSlots();
