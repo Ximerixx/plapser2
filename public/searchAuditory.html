@@ -5,22 +5,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#7131c0">
-    <title>Расписание по аудитории</title>
+    <title>Поиск по аудиториям</title>
     <link rel="stylesheet" href="stylesheet.css">
     <link rel="manifest" href="/manifest.json">
     <style>
         .results-container { margin-top: 20px; padding: 20px; background: var(--border-light); border-radius: 8px; border: 1px solid var(--border); }
-        .lesson-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 10px; }
-        .lesson-time { font-weight: bold; color: var(--primary); font-size: 18px; }
-        .lesson-details { margin-top: 8px; color: var(--text); }
-        .lesson-room { background: var(--secondary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-right: 10px; }
-        .lesson-group { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-right: 10px; }
-        .lesson-teacher { background: var(--text-light); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; }
-        .lesson-subgroup { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-left: 6px; }
-        .no-lessons { text-align: center; color: var(--text-light); font-style: italic; padding: 20px; }
-        .auditory-info { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 15px; text-align: center; }
-        .auditory-name { font-size: 20px; font-weight: bold; color: var(--primary); }
-        .search-date { color: var(--text-light); font-size: 14px; }
+        .slot-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; margin-bottom: 16px; }
+        .slot-button { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+        .slot-button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .mode-row { display: flex; gap: 10px; margin: 12px 0; }
+        .mode-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); }
+        .item-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+        .item-title { font-weight: bold; color: var(--primary); }
+        .meta { color: var(--text-light); font-size: 14px; margin-top: 4px; }
+        .no-data { text-align: center; color: var(--text-light); font-style: italic; padding: 20px; }
+        .lesson-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+        .lesson-time { font-weight: bold; color: var(--primary); font-size: 17px; }
+        .lesson-details { margin-top: 6px; color: var(--text); }
+        .lesson-room { background: var(--secondary); color: white; padding: 3px 8px; border-radius: 4px; font-size: 13px; display: inline-block; margin-right: 6px; }
+        .lesson-group { background: var(--primary); color: white; padding: 3px 8px; border-radius: 4px; font-size: 13px; display: inline-block; margin-right: 6px; }
+        .lesson-teacher { background: var(--text-light); color: white; padding: 3px 8px; border-radius: 4px; font-size: 13px; display: inline-block; }
     </style>
 </head>
 
@@ -34,14 +38,12 @@
             <a href="/gui" class="button" style="display: inline-block; text-decoration: none; background: var(--text-light);">← Назад к генератору</a>
         </div>
 
-        <h1>Расписание по аудитории</h1>
-        <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">Узнайте, какие занятия проходят в выбранной аудитории</p>
+        <h1>Поиск по аудиториям</h1>
+        <p style="text-align: center; color: var(--text-light); margin-bottom: 20px;">Переключайтесь между свободными аудиториями и обычным расписанием аудитории</p>
 
-        <div class="input-group">
-            <input type="text" id="auditory" class="input-field" placeholder=" ">
-            <button id="clear-auditory" class="button secondary small-button">×</button>
-            <label class="input-label">Аудитория</label>
-            <ul id="auditory-list" class="dropdown"></ul>
+        <div class="mode-row">
+            <label><input type="radio" name="page-mode" value="free" checked> Поиск свободных аудиторий</label>
+            <label><input type="radio" name="page-mode" value="lessons"> Поиск занятий в аудитории</label>
         </div>
 
         <div class="input-group">
@@ -49,13 +51,41 @@
             <label class="input-label">Дата</label>
         </div>
 
-        <div class="checkbox-container">
+        <div class="input-group">
+            <input type="text" id="building" class="input-field" placeholder=" " value="ГЛ">
+            <label class="input-label">Корпус (например ГЛ, 7К, 9К)</label>
+        </div>
+
+        <div class="mode-row" id="free-search-modes">
+            <label><input type="radio" name="search-mode" value="slot" checked> По слоту</label>
+            <label><input type="radio" name="search-mode" value="room"> По аудитории</label>
+            <label><input type="radio" name="search-mode" value="type"> По типу аудитории</label>
+        </div>
+
+        <div class="input-group" id="auditory-group" style="display:none;">
+            <input type="text" id="auditory" class="input-field" placeholder=" ">
+            <button id="clear-auditory" class="button secondary small-button">×</button>
+            <label class="input-label">Аудитория</label>
+            <ul id="auditory-list" class="dropdown"></ul>
+        </div>
+
+        <div class="input-group" id="type-group" style="display:none;">
+            <input type="text" id="auditory-type" class="input-field" placeholder=" ">
+            <label class="input-label">Тип аудитории (лаб, комп, пр, лек)</label>
+        </div>
+
+        <div id="slots-section">
+            <div style="font-weight: bold; margin-bottom: 6px;">Слоты на выбранный день:</div>
+            <div id="slot-buttons" class="slot-buttons"></div>
+        </div>
+
+        <div class="checkbox-container" id="weekParsingWrap" style="display:none;">
             <input type="checkbox" id="weekParsing" class="checkbox">
             <label for="weekParsing">Получить данные на неделю</label>
         </div>
 
-        <button id="search-auditory" class="button">Показать расписание</button>
-        <button id="refresh-from-source" class="button secondary" title="Запросить актуальные данные с сайта и обновить кэш и базу">Обновить из источника</button>
+        <button id="search-auditory" class="button">Найти</button>
+        <button id="refresh-from-source" class="button secondary" style="display:none;" title="Запросить актуальные данные с сайта и обновить кэш и базу">Обновить из источника</button>
 
         <div id="results" style="display: none;"></div>
     </div>
@@ -74,17 +104,61 @@
                 themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
             });
 
-            const auditoryInput = document.getElementById('auditory');
-            const auditoryList = document.getElementById('auditory-list');
             const dateInput = document.getElementById('date');
+            const buildingInput = document.getElementById('building');
+            const auditoryInput = document.getElementById('auditory');
+            const auditoryTypeInput = document.getElementById('auditory-type');
+            const auditoryList = document.getElementById('auditory-list');
+            const auditoryGroup = document.getElementById('auditory-group');
+            const typeGroup = document.getElementById('type-group');
+            const freeSearchModes = document.getElementById('free-search-modes');
+            const slotsSection = document.getElementById('slots-section');
+            const weekParsingWrap = document.getElementById('weekParsingWrap');
             const weekParsingCheckbox = document.getElementById('weekParsing');
+            const slotButtonsContainer = document.getElementById('slot-buttons');
             const clearButton = document.getElementById('clear-auditory');
             const searchButton = document.getElementById('search-auditory');
+            const refreshButton = document.getElementById('refresh-from-source');
             const resultsDiv = document.getElementById('results');
+            const pageModeRadios = document.querySelectorAll('input[name="page-mode"]');
+            const modeRadios = document.querySelectorAll('input[name="search-mode"]');
 
             let allAuditories = [];
+            let selectedSlot = '';
             const today = new Date();
             dateInput.valueAsDate = today;
+
+            function getMode() {
+                return document.querySelector('input[name="search-mode"]:checked').value;
+            }
+
+            function getPageMode() {
+                return document.querySelector('input[name="page-mode"]:checked').value;
+            }
+
+            function applyModeVisibility() {
+                const mode = getMode();
+                const pageMode = getPageMode();
+                if (pageMode === 'lessons') {
+                    auditoryGroup.style.display = 'block';
+                    typeGroup.style.display = 'none';
+                    return;
+                }
+                auditoryGroup.style.display = mode === 'room' ? 'block' : 'none';
+                typeGroup.style.display = mode === 'type' ? 'block' : 'none';
+            }
+
+            function applyPageModeVisibility() {
+                const pageMode = getPageMode();
+                const freeMode = pageMode === 'free';
+                freeSearchModes.style.display = freeMode ? 'flex' : 'none';
+                slotsSection.style.display = freeMode ? 'block' : 'none';
+                buildingInput.closest('.input-group').style.display = freeMode ? 'block' : 'none';
+                weekParsingWrap.style.display = freeMode ? 'none' : 'flex';
+                refreshButton.style.display = freeMode ? 'none' : 'inline-block';
+                searchButton.textContent = freeMode ? 'Найти свободные' : 'Показать расписание';
+                applyModeVisibility();
+            }
 
             clearButton.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -94,8 +168,15 @@
             });
 
             auditoryInput.addEventListener('input', updateDropdown);
-            searchButton.addEventListener('click', () => searchAuditory(false));
-            document.getElementById('refresh-from-source').addEventListener('click', () => searchAuditory(true));
+            searchButton.addEventListener('click', () => {
+                if (getPageMode() === 'free') return searchFreeAuditories();
+                return searchAuditoryLessons(false);
+            });
+            refreshButton.addEventListener('click', () => searchAuditoryLessons(true));
+            pageModeRadios.forEach(r => r.addEventListener('change', applyPageModeVisibility));
+            modeRadios.forEach(r => r.addEventListener('change', applyModeVisibility));
+            dateInput.addEventListener('change', loadSlots);
+            buildingInput.addEventListener('change', loadSlots);
 
             async function fetchAuditories() {
                 try {
@@ -125,79 +206,112 @@
                 });
             }
 
-            async function searchAuditory(forceRefresh = false) {
-                const auditory = auditoryInput.value.trim();
+            function setActiveSlot(slot) {
+                selectedSlot = slot;
+                const buttons = slotButtonsContainer.querySelectorAll('.slot-button');
+                buttons.forEach(btn => btn.classList.toggle('active', btn.dataset.slot === slot));
+            }
+
+            async function loadSlots() {
                 const date = dateInput.value;
-                const weekParsing = weekParsingCheckbox.checked;
-
-                if (!auditory) {
-                    alert('Пожалуйста, выберите аудиторию');
-                    return;
-                }
-
-                resultsDiv.style.display = 'block';
-                resultsDiv.innerHTML = '<div class="loading">' + (forceRefresh ? 'Запрос данных с источника...' : 'Загрузка...') + '</div>';
-
+                const building = buildingInput.value.trim();
+                if (!date) return;
+                slotButtonsContainer.innerHTML = '<div class="meta">Загрузка слотов...</div>';
                 try {
-                    const apiType = weekParsing ? 'json-week' : 'json';
-                    let url = `/gen_auditory?auditory=${encodeURIComponent(auditory)}&type=${apiType}`;
-                    if (date) url += `&date=${date}`;
-                    if (forceRefresh) url += '&refresh=1';
-
+                    const url = `/api/free-auditories/slots?date=${encodeURIComponent(date)}&building=${encodeURIComponent(building)}`;
                     const response = await fetch(url);
                     const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Не удалось загрузить слоты');
+                    const slots = data.slots || [];
+                    slotButtonsContainer.innerHTML = '';
+                    if (!slots.length) {
+                        selectedSlot = '';
+                        slotButtonsContainer.innerHTML = '<div class="meta">Нет слотов на выбранный день и корпус.</div>';
+                        return;
+                    }
+                    slots.forEach(slot => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'slot-button';
+                        btn.dataset.slot = slot;
+                        btn.textContent = slot;
+                        btn.addEventListener('click', () => setActiveSlot(slot));
+                        slotButtonsContainer.appendChild(btn);
+                    });
+                    setActiveSlot(slots[0]);
+                } catch (error) {
+                    slotButtonsContainer.innerHTML = `<div class="error">${error.message}</div>`;
+                }
+            }
 
-                    if (!response.ok) throw new Error(data.error || 'Ошибка при загрузке расписания');
+            async function searchFreeAuditories() {
+                const mode = getMode();
+                const date = dateInput.value;
+                const building = buildingInput.value.trim();
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div class="loading">Поиск...</div>';
 
-                    displayResults(data, auditory, date, weekParsing);
+                try {
+                    let url = '';
+                    if (mode === 'room') {
+                        const auditory = auditoryInput.value.trim();
+                        if (!auditory) throw new Error('Укажите аудиторию.');
+                        url = `/api/free-auditories/by-room?date=${encodeURIComponent(date)}&building=${encodeURIComponent(building)}&auditory=${encodeURIComponent(auditory)}`;
+                    } else {
+                        if (!selectedSlot) throw new Error('Выберите слот.');
+                        url = `/api/free-auditories/by-slot?date=${encodeURIComponent(date)}&building=${encodeURIComponent(building)}&slot=${encodeURIComponent(selectedSlot)}`;
+                        if (mode === 'type') {
+                            const t = auditoryTypeInput.value.trim();
+                            if (!t) throw new Error('Укажите тип аудитории.');
+                            url += `&auditory_type=${encodeURIComponent(t)}`;
+                        }
+                    }
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Ошибка при поиске');
+                    displayResults(data, mode);
                 } catch (error) {
                     console.error('Ошибка:', error);
                     resultsDiv.innerHTML = `<div class="error"><strong>Ошибка:</strong> ${error.message}</div>`;
                 }
             }
 
-            function displayResults(data, auditory, searchDate, weekParsing) {
+            async function searchAuditoryLessons(forceRefresh = false) {
+                const auditory = auditoryInput.value.trim();
+                const date = dateInput.value;
+                const weekParsing = weekParsingCheckbox.checked;
+                if (!auditory) throw new Error('Укажите аудиторию.');
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div class="loading">' + (forceRefresh ? 'Запрос данных с источника...' : 'Загрузка...') + '</div>';
+                const apiType = weekParsing ? 'json-week' : 'json';
+                let url = `/gen_auditory?auditory=${encodeURIComponent(auditory)}&type=${apiType}`;
+                if (date) url += `&date=${date}`;
+                if (forceRefresh) url += '&refresh=1';
+                const response = await fetch(url);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Ошибка при загрузке расписания');
+                displayLessonResults(data, auditory, date, weekParsing);
+            }
+
+            function displayLessonResults(data, auditory, searchDate, weekParsing) {
                 let html = `
                     <div class="results-container">
-                        <div class="auditory-info">
-                            <div class="auditory-name">${auditory}</div>
-                            <div class="search-date">${weekParsing ? 'Расписание на неделю' : (searchDate || 'Сегодня')}</div>
+                        <div class="item-card">
+                            <div class="item-title">${auditory}</div>
+                            <div class="meta">${weekParsing ? 'Расписание на неделю' : (searchDate || 'Сегодня')}</div>
                         </div>
                 `;
-
                 const targetDate = searchDate || new Date().toISOString().split('T')[0];
-
                 if (weekParsing) {
                     const dates = Object.keys(data).sort();
+                    let any = false;
                     dates.forEach(dateKey => {
                         const dayData = data[dateKey];
-                        if (dayData && dayData.lessons) {
-                            const activeLessons = dayData.lessons.filter(l => l.time && l.time.includes('-') && !l.status);
-                            if (activeLessons.length > 0) {
-                                html += `<div style="margin: 20px 0;"><h3 style="color: var(--primary); margin-bottom: 10px;">${dayData.date} (${dayData.dayOfWeek})</h3>`;
-                                activeLessons.forEach(lesson => {
-                                    html += `
-                                        <div class="lesson-card">
-                                            <div class="lesson-time">${lesson.time || 'N/A'}</div>
-                                            <div class="lesson-details">
-                                                <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
-                                                ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
-                                                ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
-                                                ${lesson.teacher ? ` <span class="lesson-teacher">${lesson.teacher}</span>` : ''}
-                                            </div>
-                                        </div>
-                                    `;
-                                });
-                                html += '</div>';
-                            }
-                        }
-                    });
-                } else {
-                    const dayData = data[targetDate] || (Object.keys(data).length ? data[Object.keys(data)[0]] : null);
-                    if (!dayData || !dayData.lessons || dayData.lessons.length === 0) {
-                        html += '<div class="no-lessons">В этой аудитории нет занятий в выбранный день</div>';
-                    } else {
+                        if (!dayData || !dayData.lessons) return;
                         const activeLessons = dayData.lessons.filter(l => l.time && l.time.includes('-') && !l.status);
+                        if (!activeLessons.length) return;
+                        any = true;
+                        html += `<div style="margin: 16px 0;"><h3 style="color: var(--primary); margin-bottom: 10px;">${dayData.date} (${dayData.dayOfWeek})</h3>`;
                         activeLessons.forEach(lesson => {
                             html += `
                                 <div class="lesson-card">
@@ -206,19 +320,77 @@
                                         <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
                                         ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
                                         ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
-                                        ${lesson.teacher ? ` <span class="lesson-teacher">${lesson.teacher}</span>` : ''}
+                                        ${lesson.teacher ? `<span class="lesson-teacher">${lesson.teacher}</span>` : ''}
                                     </div>
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+                    });
+                    if (!any) html += '<div class="no-data">В этой аудитории нет занятий на выбранной неделе.</div>';
+                } else {
+                    const dayData = data[targetDate] || (Object.keys(data).length ? data[Object.keys(data)[0]] : null);
+                    if (!dayData || !dayData.lessons || dayData.lessons.length === 0) {
+                        html += '<div class="no-data">В этой аудитории нет занятий в выбранный день.</div>';
+                    } else {
+                        const activeLessons = dayData.lessons.filter(l => l.time && l.time.includes('-') && !l.status);
+                        if (!activeLessons.length) {
+                            html += '<div class="no-data">В этой аудитории нет занятий в выбранный день.</div>';
+                        } else {
+                            activeLessons.forEach(lesson => {
+                                html += `
+                                    <div class="lesson-card">
+                                        <div class="lesson-time">${lesson.time || 'N/A'}</div>
+                                        <div class="lesson-details">
+                                            <strong>${lesson.subject || lesson.name || 'Занятие'}</strong><br>
+                                            ${lesson.room ? `<span class="lesson-room">${lesson.room}</span>` : ''}
+                                            ${lesson.group ? `<span class="lesson-group">${lesson.group}</span>` : ''}
+                                            ${lesson.teacher ? `<span class="lesson-teacher">${lesson.teacher}</span>` : ''}
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                        }
+                    }
+                }
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+            }
+
+            function displayResults(data, mode) {
+                let html = '<div class="results-container">';
+                if (mode === 'room') {
+                    html += `<div class="item-card"><div class="item-title">${data.auditory.rawName}</div><div class="meta">Корпус: ${data.auditory.building || '—'} · Тип: ${data.auditory.roomType || '—'}</div></div>`;
+                    if (!data.freeSlots || !data.freeSlots.length) {
+                        html += '<div class="no-data">Нет свободных слотов для этой аудитории.</div>';
+                    } else {
+                        data.freeSlots.forEach(slot => {
+                            html += `<div class="item-card"><div class="item-title">${slot}</div><div class="meta">Свободно</div></div>`;
+                        });
+                    }
+                } else {
+                    const list = data.freeAuditories || [];
+                    if (!list.length) {
+                        html += '<div class="no-data">Свободных аудиторий по фильтру нет.</div>';
+                    } else {
+                        list.forEach(item => {
+                            html += `
+                                <div class="item-card">
+                                    <div class="item-title">${item.rawName}</div>
+                                    <div class="meta">Номер: ${item.roomNumber || '—'} · Тип: ${item.roomType || '—'} · Корпус: ${item.building || '—'}</div>
                                 </div>
                             `;
                         });
                     }
                 }
-
                 html += '</div>';
                 resultsDiv.innerHTML = html;
             }
 
             fetchAuditories();
+            applyPageModeVisibility();
+            applyModeVisibility();
+            loadSlots();
         });
     </script>
 </body>

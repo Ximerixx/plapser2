@@ -204,6 +204,21 @@ allowedHeaders: ['Content-Type', 'Authorization']
 **Purpose:** Cached list of auditories (from DB or KIS)
 **Caching:** Same pattern as groups/teachers
 
+#### GET `/api/free-auditories/slots` - Dynamic Slots For Day
+**Purpose:** Return only slots that реально существуют в БД на выбранную дату (и, опционально, корпус)
+**Parameters:** `date` (YYYY-MM-DD, required), `building` (optional)
+**Response:** `{ date, building, slots: ["HH:MM-HH:MM", ...] }`
+
+#### GET `/api/free-auditories/by-slot` - Free Auditories By Slot
+**Purpose:** Find free auditories in a building for a selected slot
+**Parameters:** `date` (required), `building` (required), `slot` (HH:MM-HH:MM, required), `auditory_type` (optional)
+**Response:** `{ date, building, slot, auditoryType, count, freeAuditories: [...] }`
+
+#### GET `/api/free-auditories/by-room` - Free Slots For Auditory
+**Purpose:** Find free slots for a specific auditory on selected date
+**Parameters:** `date` (required), `auditory` (required), `building` (optional)
+**Response:** `{ date, auditoryQuery, auditory, freeSlots, occupiedSlots }`
+
 #### GET `/searchTeach` - Simplified Teacher Search API
 **Purpose:** Quick teacher location lookup for today
 **Parameters:**
@@ -686,6 +701,12 @@ Optional Telegram bot runs in a separate Worker thread when `TELEGRAM_BOT_TOKEN`
 - **tgbot_prefs**: user_id, chat_id, lang ('ru'|'en'), created_at, updated_at. One row per user (private) or per chat (group); UNIQUE(user_id), UNIQUE(chat_id).
 - **tgbot_inline_lut**: code TEXT PRIMARY KEY (6-char random, alphabet A–Z a–z 0–9), entity_type, entity_key, scope, lang; UNIQUE(entity_type, entity_key, scope, lang). No seq table; codes randomized for anonymity. Lookup accepts 4-char (legacy) or 6-char.
 - Methods: getTgSubsByChatId, addTgGroupSub, removeTgGroupSub, removeTgGroupSubAll, getTgUserSubscriptions, addTgSubscription, removeTgSubscription, removeTgSubscriptionAll, getTgSubscriptionsDueForTime, getTgUserLang, setTgUserLang, getTgChatLang, setTgChatLang, updateTgUserSendTime.
+
+### Auditory normalization for free-room search
+- Added table `normalized_auditories`: `raw_name`, `room_number`, `room_type`, `building`, `normalized_key`.
+- `schedule_slots` now links to normalized auditory via `normalized_auditory_id`.
+- Normalization rule is best-effort split by `/`: left part -> room number/type, right part -> building.
+- Web free-room search (`searchAuditory.html`) uses dynamic slots from DB instead of hardcoded schedule grid.
 
 ### request_stats user_agent (bot requests)
 Format: `PlapserTelegramAPI/1.2 mode=inline|group|private user=... chat=... entity_type=... entity_key=... scope=...`

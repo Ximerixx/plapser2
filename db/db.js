@@ -36,12 +36,20 @@ function runMigrations(d) {
     if (!columnExists(d, 'schedule_slots', 'auditory_id')) {
         d.exec('ALTER TABLE schedule_slots ADD COLUMN auditory_id INTEGER REFERENCES auditories(id)');
     }
+    if (!columnExists(d, 'schedule_slots', 'normalized_auditory_id')) {
+        d.exec('ALTER TABLE schedule_slots ADD COLUMN normalized_auditory_id INTEGER REFERENCES normalized_auditories(id)');
+    }
     try {
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_normalized_auditory_date ON schedule_slots(normalized_auditory_id, date)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_free_search ON schedule_slots(date, normalized_auditory_id, time_start, time_end)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_normalized_auditories_building ON normalized_auditories(building)');
+        d.exec('CREATE INDEX IF NOT EXISTS idx_normalized_auditories_room_type ON normalized_auditories(room_type)');
     } catch (_) { }
     migrateEntityTypeToIncludeAuditory(d);
     migrateSourceAsked(d);
     migrateClassroomsToAuditories(d);
+    migrateNormalizedAuditories(d);
     try {
         d.exec(`
             CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_dedup
@@ -180,6 +188,87 @@ function migrateClassroomsToAuditories(d) {
     d.pragma('foreign_keys = ON');
 }
 
+function normalizeRoomType(rawType) {
+    if (!rawType) return null;
+    const t = String(rawType).toLowerCase().trim();
+    if (!t) return null;
+    if (t.includes('комп') || t.includes('информ')) return 'комп';
+    if (t.includes('лаб')) return 'лаб';
+    if (t.includes('пр')) return 'пр';
+    if (t === 'л' || t.includes('лек')) return 'лек';
+    if (t.includes('дис')) return 'дис';
+    if (t.includes('мастер')) return 'мастер';
+    return t;
+}
+
+function parseAuditoryParts(rawName) {
+    const raw = String(rawName ?? '').replace(/\s+/g, ' ').trim();
+    if (!raw) {
+        return { rawName: '', roomNumber: null, roomType: null, building: null, normalizedKey: '' };
+    }
+    const slashIdx = raw.indexOf('/');
+    const left = slashIdx >= 0 ? raw.slice(0, slashIdx).trim() : raw;
+    const right = slashIdx >= 0 ? raw.slice(slashIdx + 1).trim() : '';
+    const leftMatch = left.match(/^([0-9]+[а-яa-z]?)(.*)$/i);
+    const roomNumber = leftMatch ? leftMatch[1].trim().toUpperCase() : left.toUpperCase();
+    const roomType = normalizeRoomType(leftMatch ? leftMatch[2] : '');
+    const building = right ? right.toUpperCase() : null;
+    const normalizedKey = `${roomNumber || ''}|${roomType || ''}|${building || ''}`;
+    return { rawName: raw, roomNumber: roomNumber || null, roomType, building, normalizedKey };
+}
+
+function ensureNormalizedAuditory(rawName) {
+    const d = getDb();
+    const parts = parseAuditoryParts(rawName);
+    if (!parts.rawName) return null;
+    let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(parts.rawName);
+    if (row) return row.id;
+    row = d.prepare('SELECT id FROM normalized_auditories WHERE normalized_key = ?').get(parts.normalizedKey);
+    if (row) {
+        d.prepare('UPDATE normalized_auditories SET raw_name = ?, updated_at = unixepoch() WHERE id = ?').run(parts.rawName, row.id);
+        return row.id;
+    }
+    const result = d.prepare(`
+        INSERT INTO normalized_auditories (raw_name, room_number, room_type, building, normalized_key, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    `).run(parts.rawName, parts.roomNumber, parts.roomType, parts.building, parts.normalizedKey);
+    return result.lastInsertRowid;
+}
+
+function migrateNormalizedAuditories(d) {
+    const hasTable = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='normalized_auditories'").get();
+    if (!hasTable) {
+        d.exec(`
+            CREATE TABLE normalized_auditories (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              raw_name TEXT NOT NULL UNIQUE,
+              room_number TEXT,
+              room_type TEXT,
+              building TEXT,
+              normalized_key TEXT NOT NULL UNIQUE,
+              created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+              updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+            )
+        `);
+    }
+    const rows = d.prepare(`
+        SELECT s.id AS slot_id, a.name AS auditory_name
+        FROM schedule_slots s
+        LEFT JOIN auditories a ON a.id = s.auditory_id
+        WHERE s.auditory_id IS NOT NULL
+          AND s.normalized_auditory_id IS NULL
+    `).all();
+    if (!rows.length) return;
+    const updateSlot = d.prepare('UPDATE schedule_slots SET normalized_auditory_id = ? WHERE id = ?');
+    const upsertNorm = d.transaction(() => {
+        for (const row of rows) {
+            const normId = ensureNormalizedAuditory(row.auditory_name || '');
+            if (normId) updateSlot.run(normId, row.slot_id);
+        }
+    });
+    upsertNorm();
+}
+
 function migrateSourceAsked(d) {
     const r = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='request_stats'").get();
     if (r && r.sql && r.sql.includes("'source_asked'")) return;
@@ -303,6 +392,7 @@ function insertScheduleSlot(row) {
     const teacherId = row.teacher_id ?? null;
     const subjectId = row.subject_id ?? null;
     const auditoryId = row.auditory_id ?? null;
+    const normalizedAuditoryId = row.normalized_auditory_id ?? null;
     const exists = d.prepare(`
         SELECT 1 FROM schedule_slots
         WHERE group_id = ? AND date = ? AND time_start = ? AND time_end = ?
@@ -313,8 +403,8 @@ function insertScheduleSlot(row) {
     `).get(row.group_id, row.date, row.time_start, row.time_end, subjectId, teacherId, auditoryId);
     if (exists) return;
     d.prepare(`
-        INSERT OR IGNORE INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, auditory_id, lesson_type, subgroup, request_stats_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO schedule_slots (date, time_start, time_end, group_id, teacher_id, subject_id, auditory_id, normalized_auditory_id, lesson_type, subgroup, request_stats_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         row.date,
         row.time_start,
@@ -323,6 +413,7 @@ function insertScheduleSlot(row) {
         teacherId,
         subjectId,
         auditoryId,
+        normalizedAuditoryId,
         row.lesson_type ?? null,
         row.subgroup ?? null,
         row.request_stats_id ?? null
@@ -574,6 +665,123 @@ function getTeacherScheduleWeek(teacherName, baseDate) {
     return Object.keys(result).length ? result : null;
 }
 
+function parseTimeRange(timeRange) {
+    if (!timeRange || typeof timeRange !== 'string' || !timeRange.includes('-')) return null;
+    const [start, end] = timeRange.split('-').map(s => s.trim());
+    if (!start || !end) return null;
+    return { start, end };
+}
+
+function getDynamicSlotsByDate(date, building = null) {
+    const d = getDb();
+    const buildingFilter = building ? String(building).trim().toUpperCase() : null;
+    const params = [date];
+    let where = 's.date = ?';
+    if (buildingFilter) {
+        where += ' AND na.building = ?';
+        params.push(buildingFilter);
+    }
+    return d.prepare(`
+        SELECT DISTINCT s.time_start, s.time_end
+        FROM schedule_slots s
+        LEFT JOIN normalized_auditories na ON na.id = s.normalized_auditory_id
+        WHERE ${where}
+        ORDER BY s.time_start, s.time_end
+    `).all(...params).map(r => `${r.time_start}-${r.time_end}`);
+}
+
+function getFreeAuditoriesBySlot(date, timeRange, building, roomType = null) {
+    const d = getDb();
+    const parsed = parseTimeRange(timeRange);
+    if (!parsed) return [];
+    const buildingFilter = String(building ?? '').trim().toUpperCase();
+    if (!buildingFilter) return [];
+    const typeFilter = roomType ? normalizeRoomType(roomType) : null;
+    const params = [buildingFilter];
+    let typeWhere = '';
+    if (typeFilter) {
+        typeWhere = ' AND na.room_type = ?';
+        params.push(typeFilter);
+    }
+    const allRooms = d.prepare(`
+        SELECT na.id, na.raw_name, na.room_number, na.room_type, na.building
+        FROM normalized_auditories na
+        WHERE na.building = ? ${typeWhere}
+        ORDER BY na.room_number, na.raw_name
+    `).all(...params);
+    if (!allRooms.length) return [];
+    const occupiedRows = d.prepare(`
+        SELECT DISTINCT s.normalized_auditory_id AS id
+        FROM schedule_slots s
+        JOIN normalized_auditories na ON na.id = s.normalized_auditory_id
+        WHERE s.date = ?
+          AND na.building = ?
+          AND s.normalized_auditory_id IS NOT NULL
+          AND s.time_start < ?
+          AND s.time_end > ?
+          ${typeFilter ? 'AND na.room_type = ?' : ''}
+    `).all(date, buildingFilter, parsed.end, parsed.start, ...(typeFilter ? [typeFilter] : []));
+    const occupiedIds = new Set(occupiedRows.map(r => r.id));
+    return allRooms
+        .filter(r => !occupiedIds.has(r.id))
+        .map(r => ({
+            id: r.id,
+            rawName: r.raw_name,
+            roomNumber: r.room_number,
+            roomType: r.room_type,
+            building: r.building
+        }));
+}
+
+function findNormalizedAuditoryByQuery(query, building = null) {
+    const d = getDb();
+    const q = String(query ?? '').trim();
+    if (!q) return null;
+    const upper = q.toUpperCase();
+    if (building) {
+        const b = String(building).trim().toUpperCase();
+        return d.prepare(`
+            SELECT id, raw_name, room_number, room_type, building
+            FROM normalized_auditories
+            WHERE building = ? AND (raw_name = ? OR room_number = ? OR raw_name LIKE ?)
+            ORDER BY CASE WHEN raw_name = ? THEN 0 ELSE 1 END, id
+            LIMIT 1
+        `).get(b, q, upper, `%${q}%`, q) || null;
+    }
+    return d.prepare(`
+        SELECT id, raw_name, room_number, room_type, building
+        FROM normalized_auditories
+        WHERE raw_name = ? OR room_number = ? OR raw_name LIKE ?
+        ORDER BY CASE WHEN raw_name = ? THEN 0 ELSE 1 END, id
+        LIMIT 1
+    `).get(q, upper, `%${q}%`, q) || null;
+}
+
+function getFreeSlotsByAuditory(date, auditoryQuery, building = null) {
+    const d = getDb();
+    const room = findNormalizedAuditoryByQuery(auditoryQuery, building);
+    if (!room) return null;
+    const slots = getDynamicSlotsByDate(date, room.building);
+    const occupied = d.prepare(`
+        SELECT time_start, time_end
+        FROM schedule_slots
+        WHERE date = ? AND normalized_auditory_id = ?
+    `).all(date, room.id).map(r => `${r.time_start}-${r.time_end}`);
+    const occupiedSet = new Set(occupied);
+    const freeSlots = slots.filter(s => !occupiedSet.has(s));
+    return {
+        auditory: {
+            id: room.id,
+            rawName: room.raw_name,
+            roomNumber: room.room_number,
+            roomType: room.room_type,
+            building: room.building
+        },
+        freeSlots,
+        occupiedSlots: slots.filter(s => occupiedSet.has(s))
+    };
+}
+
 function formatDateDisplay(isoDate) {
     const [y, m, d] = isoDate.split('-');
     const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -659,6 +867,7 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : null;
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
                 const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
+                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 insertScheduleSlot({
                     date: dateKey,
                     time_start: timeStart,
@@ -667,6 +876,7 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                     teacher_id: teacherId,
                     subject_id: subjectId,
                     auditory_id: auditoryId,
+                    normalized_auditory_id: normalizedAuditoryId,
                     lesson_type: lesson.type || null,
                     subgroup: lesson.subgroup || null,
                     request_stats_id: requestStatsId
@@ -699,6 +909,7 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                 const subjectId = (lesson.subject && lesson.subject.trim()) ? ensureSubject(lesson.subject.trim()) : null;
                 const roomName = lesson.auditory || lesson.room;
                 const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
+                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 const groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 for (const groupName of groups) {
                     if (!groupName || !groupName.trim()) continue;
@@ -711,6 +922,7 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                         teacher_id: teacherId,
                         subject_id: subjectId,
                         auditory_id: auditoryId,
+                        normalized_auditory_id: normalizedAuditoryId,
                         lesson_type: null,
                         subgroup: lesson.subgroup || null,
                         request_stats_id: requestStatsId
@@ -745,6 +957,7 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : (lesson.subject && lesson.subject.trim() ? ensureSubject(lesson.subject.trim()) : null);
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
                 const lessonAuditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : auditoryId;
+                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 let groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 groups = groups.filter(g => g && g.trim());
                 if (groups.length === 0) groups = ['—'];
@@ -759,6 +972,7 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                         teacher_id: teacherId,
                         subject_id: subjectId,
                         auditory_id: lessonAuditoryId,
+                        normalized_auditory_id: normalizedAuditoryId,
                         lesson_type: lesson.type || null,
                         subgroup: lesson.subgroup || null,
                         request_stats_id: requestStatsId
@@ -966,6 +1180,7 @@ module.exports = {
     ensureGroup,
     ensureTeacher,
     ensureAuditory,
+    ensureNormalizedAuditory,
     ensureSubject,
     insertScheduleSlot,
     insertScheduleMeta,
@@ -976,6 +1191,9 @@ module.exports = {
     getStudentScheduleWeek,
     getTeacherScheduleWeek,
     getAuditoryScheduleWeek,
+    getDynamicSlotsByDate,
+    getFreeAuditoriesBySlot,
+    getFreeSlotsByAuditory,
     getScheduleMaxCreatedAt,
     getScheduleMaxCreatedAtMinForWeek,
     bumpScheduleCreatedAt,
