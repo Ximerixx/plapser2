@@ -30,6 +30,28 @@ let groupsCache = { data: [], lastUpdated: 0 };
 let teachersCache = { data: [], lastUpdated: 0 };
 let auditoriesCache = { data: [], lastUpdated: 0 };
 
+function getDateOffset(offsetDays = 0, baseDate = null) {
+    const d = baseDate ? new Date(baseDate) : new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().split('T')[0];
+}
+
+function resolveBaseDate({ date = null, today = null, tomorrow = null } = {}) {
+    if (tomorrow === true || tomorrow === 'true' || tomorrow === 1 || tomorrow === '1') {
+        return getDateOffset(1);
+    }
+    if (today === true || today === 'true' || today === 1 || today === '1') {
+        return getDateOffset(0);
+    }
+    if (date == null || date === '') {
+        return getDateOffset(0);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+        return null;
+    }
+    return String(date);
+}
+
 function getScheduleCacheKey(type, entity, date, subgroup = null) {
     if (type === 'student') return `student:${entity}:${date}:${subgroup || 'all'}`;
     if (type === 'teacher') return `teacher:${entity}:${date}`;
@@ -395,6 +417,21 @@ async function getAuditoriesList() {
     return auditoriesCache.data;
 }
 
+function getFreeAuditorySlots(baseDate, building = null) {
+    if (!dbLayer || !dbLayer.getDynamicSlotsByDate) return [];
+    return dbLayer.getDynamicSlotsByDate(baseDate, building || null);
+}
+
+function getFreeAuditoriesBySlot(baseDate, slot, building, roomType = null) {
+    if (!dbLayer || !dbLayer.getFreeAuditoriesBySlot) return [];
+    return dbLayer.getFreeAuditoriesBySlot(baseDate, slot, building, roomType || null);
+}
+
+function getFreeSlotsByAuditory(baseDate, auditory, building = null) {
+    if (!dbLayer || !dbLayer.getFreeSlotsByAuditory) return null;
+    return dbLayer.getFreeSlotsByAuditory(baseDate, auditory, building || null);
+}
+
 module.exports = {
     getScheduleGroup,
     getScheduleTeacher,
@@ -407,5 +444,9 @@ module.exports = {
     fetchTeacherFromSourceAndSave,
     fetchAuditoryFromSourceAndSave,
     setCachedSchedule,
-    getScheduleCacheKey
+    getScheduleCacheKey,
+    resolveBaseDate,
+    getFreeAuditorySlots,
+    getFreeAuditoriesBySlot,
+    getFreeSlotsByAuditory
 };

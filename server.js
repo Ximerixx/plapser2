@@ -768,6 +768,74 @@ app.get('/api/auditories', async (req, res) => {
     }
 });
 
+app.get('/api/free-auditories/slots', (req, res) => {
+    const { date, today, tomorrow, building } = req.query;
+    const baseDate = jsapi.resolveBaseDate({ date, today, tomorrow });
+    if (!baseDate) {
+        return res.status(400).json({ error: 'Bad date format. Use YYYY-MM-DD' });
+    }
+    try {
+        const slots = jsapi.getFreeAuditorySlots(baseDate, building || null);
+        return res.json({ date: baseDate, building: building ? String(building).trim().toUpperCase() : null, slots });
+    } catch (e) {
+        console.error('free-auditories/slots failed:', e);
+        return res.status(500).json({ error: 'Failed to load slots' });
+    }
+});
+
+app.get('/api/free-auditories/by-slot', (req, res) => {
+    const { date, today, tomorrow, building, slot, auditory_type: auditoryType } = req.query;
+    const baseDate = jsapi.resolveBaseDate({ date, today, tomorrow });
+    if (!baseDate) {
+        return res.status(400).json({ error: 'Bad date format. Use YYYY-MM-DD' });
+    }
+    if (!building) {
+        return res.status(400).json({ error: 'building is required' });
+    }
+    if (!slot || !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(String(slot))) {
+        return res.status(400).json({ error: 'slot is required in HH:MM-HH:MM format' });
+    }
+    try {
+        const freeAuditories = jsapi.getFreeAuditoriesBySlot(baseDate, String(slot), String(building), auditoryType || null);
+        return res.json({
+            date: baseDate,
+            building: String(building).trim().toUpperCase(),
+            slot: String(slot),
+            auditoryType: auditoryType || null,
+            count: freeAuditories.length,
+            freeAuditories
+        });
+    } catch (e) {
+        console.error('free-auditories/by-slot failed:', e);
+        return res.status(500).json({ error: 'Failed to load free auditories by slot' });
+    }
+});
+
+app.get('/api/free-auditories/by-room', (req, res) => {
+    const { date, today, tomorrow, building, auditory } = req.query;
+    const baseDate = jsapi.resolveBaseDate({ date, today, tomorrow });
+    if (!baseDate) {
+        return res.status(400).json({ error: 'Bad date format. Use YYYY-MM-DD' });
+    }
+    if (!auditory) {
+        return res.status(400).json({ error: 'auditory is required' });
+    }
+    try {
+        const result = jsapi.getFreeSlotsByAuditory(baseDate, String(auditory), building || null);
+        if (!result) return res.status(404).json({ error: 'Auditory not found in normalized storage' });
+        return res.json({
+            date: baseDate,
+            auditoryQuery: String(auditory),
+            auditory: result.auditory,
+            freeSlots: result.freeSlots,
+            occupiedSlots: result.occupiedSlots
+        });
+    } catch (e) {
+        console.error('free-auditories/by-room failed:', e);
+        return res.status(500).json({ error: 'Failed to load free slots by auditory' });
+    }
+});
+
 // Cache-Control для HTML-страниц (то же значение, что и для статики)
 app.use((req, res, next) => {
     if (req.method === 'GET' && ['/gui', '/searchStudent', '/searchTeacher', '/searchAuditory'].includes(req.path)) {
