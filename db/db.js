@@ -37,7 +37,12 @@ function runMigrations(d) {
         d.exec('ALTER TABLE schedule_slots ADD COLUMN auditory_id INTEGER REFERENCES auditories(id)');
     }
     if (!columnExists(d, 'schedule_slots', 'normalized_auditory_id')) {
-        d.exec('ALTER TABLE schedule_slots ADD COLUMN normalized_auditory_id INTEGER REFERENCES normalized_auditories(id)');
+        try {
+            d.exec('ALTER TABLE schedule_slots ADD COLUMN normalized_auditory_id INTEGER REFERENCES normalized_auditories(id)');
+        } catch (_) {
+            // Fallback for older SQLite variations where REFERENCES in ADD COLUMN can fail.
+            d.exec('ALTER TABLE schedule_slots ADD COLUMN normalized_auditory_id INTEGER');
+        }
     }
     try {
         d.exec('CREATE INDEX IF NOT EXISTS idx_schedule_slots_auditory_date ON schedule_slots(auditory_id, date)');
@@ -236,6 +241,7 @@ function ensureNormalizedAuditory(rawName) {
 }
 
 function migrateNormalizedAuditories(d) {
+    if (!columnExists(d, 'schedule_slots', 'normalized_auditory_id')) return;
     const hasTable = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='normalized_auditories'").get();
     if (!hasTable) {
         d.exec(`
