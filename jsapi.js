@@ -417,6 +417,135 @@ async function getAuditoriesList() {
     return auditoriesCache.data;
 }
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function warmupAllSchedulesForDate(baseDate, opts = {}) {
+    const includeGroups = opts.includeGroups !== false;
+    const includeTeachers = opts.includeTeachers !== false;
+    const includeAuditories = opts.includeAuditories !== false;
+    const delayMs = Number.isFinite(opts.delayMs) ? opts.delayMs : 80;
+    const userAgentBase = opts.userAgentBase || 'PlapserWarmup/1.0';
+    const ip = opts.ip || 'warmup';
+    const stats = {
+        date: baseDate,
+        groups: { total: 0, ok: 0, failed: 0 },
+        teachers: { total: 0, ok: 0, failed: 0 },
+        auditories: { total: 0, ok: 0, failed: 0 }
+    };
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+    const startedAt = Date.now();
+
+    const totalItems =
+        (includeGroups ? (await getGroupsList()).length : 0) +
+        (includeTeachers ? (await getTeachersList()).length : 0) +
+        (includeAuditories ? (await getAuditoriesList()).length : 0);
+    let processedItems = 0;
+
+    const emitProgress = (stage, key = null) => {
+        if (!onProgress) return;
+        const elapsedMs = Date.now() - startedAt;
+        const rate = processedItems > 0 ? (elapsedMs / processedItems) : 0;
+        const remaining = Math.max(0, totalItems - processedItems);
+        const etaMs = rate > 0 ? Math.round(remaining * rate) : null;
+        onProgress({
+            stage,
+            key,
+            processedItems,
+            totalItems,
+            elapsedMs,
+            etaMs,
+            stats
+        });
+    };
+
+    if (includeGroups) {
+        const groups = await getGroupsList();
+        stats.groups.total = groups.length;
+        emitProgress('groups_start');
+        for (const group of groups) {
+            try {
+                const startTime = Date.now();
+                await fetchStudentFromSourceAndSave(group, baseDate, null, {
+                    ip,
+                    userAgent: `${userAgentBase} entity=group key=${group}`,
+                    startTime,
+                    type: 'json-week'
+                });
+                stats.groups.ok++;
+            } catch (_) {
+                stats.groups.failed++;
+            }
+            processedItems++;
+            emitProgress('groups_progress', group);
+            if (delayMs > 0) await sleep(delayMs);
+        }
+        emitProgress('groups_done');
+    }
+
+    if (includeTeachers) {
+        const teachers = await getTeachersList();
+        stats.teachers.total = teachers.length;
+        emitProgress('teachers_start');
+        for (const teacher of teachers) {
+            try {
+                const startTime = Date.now();
+                await fetchTeacherFromSourceAndSave(teacher, baseDate, {
+                    ip,
+                    userAgent: `${userAgentBase} entity=teacher key=${teacher}`,
+                    startTime,
+                    type: 'json-week'
+                });
+                stats.teachers.ok++;
+            } catch (_) {
+                stats.teachers.failed++;
+            }
+            processedItems++;
+            emitProgress('teachers_progress', teacher);
+            if (delayMs > 0) await sleep(delayMs);
+        }
+        emitProgress('teachers_done');
+    }
+
+    if (includeAuditories) {
+        const auditories = await getAuditoriesList();
+        stats.auditories.total = auditories.length;
+        emitProgress('auditories_start');
+        for (const auditory of auditories) {
+            try {
+                const startTime = Date.now();
+                await fetchAuditoryFromSourceAndSave(auditory, baseDate, {
+                    ip,
+                    userAgent: `${userAgentBase} entity=auditory key=${auditory}`,
+                    startTime,
+                    type: 'json-week'
+                });
+                stats.auditories.ok++;
+            } catch (_) {
+                stats.auditories.failed++;
+            }
+            processedItems++;
+            emitProgress('auditories_progress', auditory);
+            if (delayMs > 0) await sleep(delayMs);
+        }
+        emitProgress('auditories_done');
+    }
+
+    if (onProgress) {
+        onProgress({
+            stage: 'done',
+            key: null,
+            processedItems,
+            totalItems,
+            elapsedMs: Date.now() - startedAt,
+            etaMs: 0,
+            stats
+        });
+    }
+    return stats;
+}
+
 function getFreeAuditorySlots(baseDate, building = null) {
     if (!dbLayer || !dbLayer.getDynamicSlotsByDate) return [];
     return dbLayer.getDynamicSlotsByDate(baseDate, building || null);
@@ -430,6 +559,21 @@ function getFreeAuditoriesBySlot(baseDate, slot, building, roomType = null) {
 function getFreeSlotsByAuditory(baseDate, auditory, building = null) {
     if (!dbLayer || !dbLayer.getFreeSlotsByAuditory) return null;
     return dbLayer.getFreeSlotsByAuditory(baseDate, auditory, building || null);
+}
+
+function getNormalizedBuildings() {
+    if (!dbLayer || !dbLayer.getNormalizedBuildings) return [];
+    return dbLayer.getNormalizedBuildings();
+}
+
+function getNormalizedAuditories(building = null) {
+    if (!dbLayer || !dbLayer.getNormalizedAuditories) return [];
+    return dbLayer.getNormalizedAuditories(building || null);
+}
+
+function getNormalizedRoomTypes(building = null) {
+    if (!dbLayer || !dbLayer.getNormalizedRoomTypes) return [];
+    return dbLayer.getNormalizedRoomTypes(building || null);
 }
 
 module.exports = {
@@ -448,5 +592,9 @@ module.exports = {
     resolveBaseDate,
     getFreeAuditorySlots,
     getFreeAuditoriesBySlot,
-    getFreeSlotsByAuditory
+    getFreeSlotsByAuditory,
+    getNormalizedBuildings,
+    getNormalizedAuditories,
+    getNormalizedRoomTypes,
+    warmupAllSchedulesForDate
 };

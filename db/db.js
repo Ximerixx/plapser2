@@ -212,11 +212,27 @@ function parseAuditoryParts(rawName) {
         return { rawName: '', roomNumber: null, roomType: null, building: null, normalizedKey: '' };
     }
     const slashIdx = raw.indexOf('/');
-    const left = slashIdx >= 0 ? raw.slice(0, slashIdx).trim() : raw;
+    let left = slashIdx >= 0 ? raw.slice(0, slashIdx).trim() : raw;
     const right = slashIdx >= 0 ? raw.slice(slashIdx + 1).trim() : '';
-    const leftMatch = left.match(/^([0-9]+[а-яa-z]?)(.*)$/i);
-    const roomNumber = leftMatch ? leftMatch[1].trim().toUpperCase() : left.toUpperCase();
-    const roomType = normalizeRoomType(leftMatch ? leftMatch[2] : '');
+
+    // Ignore leading section markers (А/Б/В/Г/Д) before actual room token.
+    left = left.replace(/^[АБВГД]\s*/iu, '').trim();
+    const hasAngl = /англ/iu.test(left);
+
+    // Room number stores only digits by requirement.
+    const roomDigits = (left.match(/\d+/u) || [null])[0];
+    const roomNumber = roomDigits || null;
+
+    let rest = left;
+    if (roomDigits) {
+        const idx = rest.indexOf(roomDigits);
+        rest = idx >= 0 ? (rest.slice(0, idx) + ' ' + rest.slice(idx + roomDigits.length)).trim() : rest;
+    }
+    // Drop one-letter noise prefixes that sometimes appear before type text.
+    rest = rest.replace(/^[АБВГД]\s*/iu, '').trim();
+    let roomType = normalizeRoomType(rest);
+    if (!roomType && hasAngl) roomType = 'англ';
+
     const building = right ? right.toUpperCase() : null;
     const normalizedKey = `${roomNumber || ''}|${roomType || ''}|${building || ''}`;
     return { rawName: raw, roomNumber: roomNumber || null, roomType, building, normalizedKey };
@@ -257,6 +273,13 @@ function migrateNormalizedAuditories(d) {
             )
         `);
     }
+
+    // Seed normalized table from raw auditories names even before slot relinking.
+    const rawAuditories = d.prepare('SELECT name FROM auditories').all();
+    for (const row of rawAuditories) {
+        try { ensureNormalizedAuditory(row.name); } catch (_) { }
+    }
+
     const rows = d.prepare(`
         SELECT s.id AS slot_id, a.name AS auditory_name
         FROM schedule_slots s
@@ -273,6 +296,80 @@ function migrateNormalizedAuditories(d) {
         }
     });
     upsertNorm();
+}
+
+function rebuildNormalizedAuditories() {
+    const d = getDb();
+    if (!columnExists(d, 'schedule_slots', 'normalized_auditory_id')) return;
+    const run = d.transaction(() => {
+        d.prepare('UPDATE schedule_slots SET normalized_auditory_id = NULL').run();
+        d.prepare('DELETE FROM normalized_auditories').run();
+
+        const fromAuditories = d.prepare('SELECT name FROM auditories').all();
+        for (const row of fromAuditories) {
+            try { ensureNormalizedAuditory(row.name); } catch (_) { }
+        }
+
+        const slots = d.prepare(`
+            SELECT s.id AS slot_id, a.name AS auditory_name
+            FROM schedule_slots s
+            LEFT JOIN auditories a ON a.id = s.auditory_id
+            WHERE s.auditory_id IS NOT NULL
+        `).all();
+        const upd = d.prepare('UPDATE schedule_slots SET normalized_auditory_id = ? WHERE id = ?');
+        for (const row of slots) {
+            const normId = ensureNormalizedAuditory(row.auditory_name || '');
+            if (normId) upd.run(normId, row.slot_id);
+        }
+    });
+    run();
+}
+
+function getNormalizedBuildings() {
+    const d = getDb();
+    return d.prepare(`
+        SELECT DISTINCT building
+        FROM normalized_auditories
+        WHERE building IS NOT NULL AND TRIM(building) <> ''
+        ORDER BY building
+    `).all().map(r => r.building);
+}
+
+function getNormalizedAuditories(building = null) {
+    const d = getDb();
+    if (building) {
+        const b = String(building).trim().toUpperCase();
+        return d.prepare(`
+            SELECT id, raw_name AS rawName, room_number AS roomNumber, room_type AS roomType, building
+            FROM normalized_auditories
+            WHERE building = ?
+            ORDER BY room_number, raw_name
+        `).all(b);
+    }
+    return d.prepare(`
+        SELECT id, raw_name AS rawName, room_number AS roomNumber, room_type AS roomType, building
+        FROM normalized_auditories
+        ORDER BY building, room_number, raw_name
+    `).all();
+}
+
+function getNormalizedRoomTypes(building = null) {
+    const d = getDb();
+    if (building) {
+        const b = String(building).trim().toUpperCase();
+        return d.prepare(`
+            SELECT DISTINCT room_type AS roomType
+            FROM normalized_auditories
+            WHERE building = ? AND room_type IS NOT NULL AND TRIM(room_type) <> ''
+            ORDER BY room_type
+        `).all(b).map(r => r.roomType);
+    }
+    return d.prepare(`
+        SELECT DISTINCT room_type AS roomType
+        FROM normalized_auditories
+        WHERE room_type IS NOT NULL AND TRIM(room_type) <> ''
+        ORDER BY room_type
+    `).all().map(r => r.roomType);
 }
 
 function migrateSourceAsked(d) {
@@ -1200,6 +1297,10 @@ module.exports = {
     getDynamicSlotsByDate,
     getFreeAuditoriesBySlot,
     getFreeSlotsByAuditory,
+    getNormalizedBuildings,
+    getNormalizedAuditories,
+    getNormalizedRoomTypes,
+    rebuildNormalizedAuditories,
     getScheduleMaxCreatedAt,
     getScheduleMaxCreatedAtMinForWeek,
     bumpScheduleCreatedAt,
