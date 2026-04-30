@@ -39,7 +39,7 @@ const PRELOAD_INTERVAL_MS = 60 * 60 * 1000;
 const NIGHTLY_WARMUP_ENABLED = (process.env.NIGHTLY_WARMUP_ENABLED || 'true') === 'true';
 const NIGHTLY_WARMUP_TIMEZONE = process.env.NIGHTLY_WARMUP_TIMEZONE || 'Europe/Moscow';
 const NIGHTLY_WARMUP_DELAY_MS = Number(process.env.NIGHTLY_WARMUP_DELAY_MS || '1');
-const NIGHTLY_WARMUP_RUN_ON_START = (process.env.NIGHTLY_WARMUP_RUN_ON_START || 'true') === 'true';
+const NIGHTLY_WARMUP_RUN_ON_START = (process.env.NIGHTLY_WARMUP_RUN_ON_START || 'false') === 'true';
 let isWarmupRunning = false;
 
 // Logging utility
