@@ -145,6 +145,55 @@ function getCurrentHHMMInTimezone(tz) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+function sendOptsForRow(row) {
+    const opts = { parse_mode: 'HTML' };
+    if (row.silent) opts.disable_notification = true;
+    return opts;
+}
+
+function allSameSilent(rows) {
+    if (!rows.length) return true;
+    const first = !!rows[0].silent;
+    return rows.every(r => !!r.silent === first);
+}
+
+async function fetchScheduleForRow(row, chatId, userId, jsapi, buildUserAgent) {
+    const startTime = Date.now();
+    const isGroup = row.type === 'group';
+    const uaOpts = {
+        ip: 'telegram',
+        userAgent: buildUserAgent(
+            isGroup ? 'group' : 'private',
+            isGroup ? null : userId,
+            isGroup ? chatId : null,
+            row.entity_type,
+            row.entity_key,
+            'today'
+        ),
+        startTime,
+        type: 'json'
+    };
+    const baseDate = getBaseDateForScope('today');
+    if (row.entity_type === 'group') {
+        const r = await jsapi.getScheduleGroup(row.entity_key, baseDate, null, uaOpts);
+        return r.data;
+    }
+    if (row.entity_type === 'teacher') {
+        const r = await jsapi.getScheduleTeacher(row.entity_key, baseDate, uaOpts);
+        return r.data;
+    }
+    const r = await jsapi.getScheduleAuditory(row.entity_key, baseDate, uaOpts);
+    return r.data;
+}
+
+function formatRowBlock(data, row, lang, T, forGroupChat) {
+    const dayOnly = forGroupChat && data && data[getBaseDateForScope('today')]
+        ? { [getBaseDateForScope('today')]: data[getBaseDateForScope('today')] }
+        : (data || {});
+    const text = formatScheduleBlock(dayOnly, lang, T);
+    return `${row.entity_type} ${row.entity_key}:\n${text}`;
+}
+
 async function runDailyJob(ctx) {
     const { db, jsapi, buildUserAgent, T } = ctx;
     const hhmm = getCurrentHHMMInTimezone(TIMEZONE);
@@ -171,42 +220,21 @@ async function runDailyJob(ctx) {
             const lang = db.getTgChatLang(chatId) || 'ru';
             const blocks = [];
             for (const row of rows) {
-                const startTime = Date.now();
-                let data;
-                if (row.entity_type === 'group') {
-                    const r = await jsapi.getScheduleGroup(row.entity_key, getBaseDateForScope('today'), null, {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('group', null, chatId, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                } else if (row.entity_type === 'teacher') {
-                    const r = await jsapi.getScheduleTeacher(row.entity_key, getBaseDateForScope('today'), {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('group', null, chatId, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                } else {
-                    const r = await jsapi.getScheduleAuditory(row.entity_key, getBaseDateForScope('today'), {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('group', null, chatId, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                }
-                // For GROUP chats: send only current day (today, MSK) even if API returned week/multiple days
-                const dayOnly = (data && data[getBaseDateForScope('today')])
-                    ? { [getBaseDateForScope('today')]: data[getBaseDateForScope('today')] }
-                    : {};
-                const text = formatScheduleBlock(dayOnly, lang, T);
-                blocks.push(`${row.entity_type} ${row.entity_key}:\n${text}`);
+                const data = await fetchScheduleForRow(row, chatId, null, jsapi, buildUserAgent);
+                blocks.push({ row, text: formatRowBlock(data, row, lang, T, true) });
                 await new Promise(r => setTimeout(r, DELAY_BETWEEN_SENDS_MS));
             }
-            await ctx.telegram.sendMessage(chatId, blocks.join('\n\n———\n\n'), { parse_mode: 'HTML' });
+            if (allSameSilent(rows)) {
+                const silent = !!rows[0].silent;
+                const opts = { parse_mode: 'HTML' };
+                if (silent) opts.disable_notification = true;
+                await ctx.telegram.sendMessage(chatId, blocks.map(b => b.text).join('\n\n———\n\n'), opts);
+            } else {
+                for (const { row, text } of blocks) {
+                    await ctx.telegram.sendMessage(chatId, text, sendOptsForRow(row));
+                    await new Promise(r => setTimeout(r, DELAY_BETWEEN_SENDS_MS));
+                }
+            }
         } catch (e) {
             console.error('[tgbot] daily group send error', chatId, e.message);
         }
@@ -216,35 +244,9 @@ async function runDailyJob(ctx) {
         try {
             const lang = db.getTgUserLang(userId) || 'ru';
             for (const row of rows) {
-                const startTime = Date.now();
-                let data;
-                if (row.entity_type === 'group') {
-                    const r = await jsapi.getScheduleGroup(row.entity_key, getBaseDateForScope('today'), null, {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('private', userId, null, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                } else if (row.entity_type === 'teacher') {
-                    const r = await jsapi.getScheduleTeacher(row.entity_key, getBaseDateForScope('today'), {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('private', userId, null, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                } else {
-                    const r = await jsapi.getScheduleAuditory(row.entity_key, getBaseDateForScope('today'), {
-                        ip: 'telegram',
-                        userAgent: buildUserAgent('private', userId, null, row.entity_type, row.entity_key, 'today'),
-                        startTime,
-                        type: 'json'
-                    });
-                    data = r.data;
-                }
-                const text = formatScheduleBlock(data || {}, lang, T);
-                await ctx.telegram.sendMessage(userId, `${row.entity_type} ${row.entity_key}:\n${text}`, { parse_mode: 'HTML' });
+                const data = await fetchScheduleForRow(row, null, userId, jsapi, buildUserAgent);
+                const text = formatRowBlock(data, row, lang, T, false);
+                await ctx.telegram.sendMessage(userId, text, sendOptsForRow(row));
                 await new Promise(r => setTimeout(r, DELAY_BETWEEN_SENDS_MS));
             }
         } catch (e) {

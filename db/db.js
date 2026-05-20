@@ -92,6 +92,7 @@ function migrateTgbotTables(d) {
               entity_type TEXT NOT NULL CHECK (entity_type IN ('group', 'teacher', 'auditory')),
               entity_key TEXT NOT NULL,
               to_send_time TEXT NOT NULL DEFAULT '07:00',
+              silent INTEGER NOT NULL DEFAULT 0,
               requested_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             )
@@ -137,6 +138,9 @@ function migrateTgbotTables(d) {
         if (hasSeq) {
             d.exec('DROP TABLE tgbot_inline_seq');
         }
+    }
+    if (!columnExists(d, 'tgbot_subscriptions', 'silent')) {
+        d.exec('ALTER TABLE tgbot_subscriptions ADD COLUMN silent INTEGER NOT NULL DEFAULT 0');
     }
 }
 function migrateTgbotInlineLutIdToCode(d) {
@@ -1234,6 +1238,44 @@ function updateTgUserSendTime(userId, toSendTime) {
     return d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE user_id = ? AND type = ?').run(toSendTime, now, String(userId), 'private');
 }
 
+/** Toggle silent flag on a subscription (scoped to owner). Returns new silent value (0|1) or null if not found. */
+function toggleTgSubscriptionSilent(subscriptionId, { userId, chatId }) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    let row;
+    if (userId != null) {
+        row = d.prepare('SELECT id, silent FROM tgbot_subscriptions WHERE id = ? AND user_id = ? AND type = ?')
+            .get(subscriptionId, String(userId), 'private');
+    } else if (chatId != null) {
+        row = d.prepare('SELECT id, silent FROM tgbot_subscriptions WHERE id = ? AND chat_id = ? AND type = ?')
+            .get(subscriptionId, String(chatId), 'group');
+    } else {
+        return null;
+    }
+    if (!row) return null;
+    const next = row.silent ? 0 : 1;
+    d.prepare('UPDATE tgbot_subscriptions SET silent = ?, updated_at = ? WHERE id = ?').run(next, now, row.id);
+    return next;
+}
+
+/** Set silent flag on a subscription (scoped to owner). Returns true if updated. */
+function setTgSubscriptionSilent(subscriptionId, silent, { userId, chatId }) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    const val = silent ? 1 : 0;
+    if (userId != null) {
+        const r = d.prepare('UPDATE tgbot_subscriptions SET silent = ?, updated_at = ? WHERE id = ? AND user_id = ? AND type = ?')
+            .run(val, now, subscriptionId, String(userId), 'private');
+        return r.changes > 0;
+    }
+    if (chatId != null) {
+        const r = d.prepare('UPDATE tgbot_subscriptions SET silent = ?, updated_at = ? WHERE id = ? AND chat_id = ? AND type = ?')
+            .run(val, now, subscriptionId, String(chatId), 'group');
+        return r.changes > 0;
+    }
+    return false;
+}
+
 /** Inline LUT: (entity_type, entity_key, scope, lang) <-> random 6-char code. A–Z, a–z, 0–9 => 62^6 codes. */
 const INLINE_LUT_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const INLINE_LUT_CODE_LEN = 6;
@@ -1325,6 +1367,8 @@ module.exports = {
     getTgChatLang,
     setTgChatLang,
     updateTgUserSendTime,
+    toggleTgSubscriptionSilent,
+    setTgSubscriptionSilent,
     getOrCreateTgInlineLutId,
     getTgInlineLutByCode
 };
