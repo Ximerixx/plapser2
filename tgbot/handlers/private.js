@@ -28,11 +28,18 @@ function getWeekDates(baseDate) {
     return out;
 }
 
+function subscriptionEntityLabel(sub) {
+    return `${sub.entity_type} ${sub.entity_key}`;
+}
+
 function buildPrivateSubsKeyboard(subs, L) {
-    const keyboard = subs.map(s => [
-        Markup.button.callback(L.silent_btn(!!s.silent, `${s.entity_type} ${s.entity_key}`), `pv_silent_${s.id}`),
-        Markup.button.callback(L.remove_sub_btn, `pv_rm_${s.id}`)
-    ]);
+    const keyboard = subs.map(s => {
+        const entity = subscriptionEntityLabel(s);
+        return [
+            Markup.button.callback(s.silent ? L.make_loud_btn(entity) : L.make_silent_btn(entity), `pv_silent_${s.id}`),
+            Markup.button.callback(L.remove_sub_btn(entity), `pv_rm_${s.id}`)
+        ];
+    });
     keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'pv_rm_all')]);
     return keyboard;
 }
@@ -47,6 +54,39 @@ function normalizeHHMM(text) {
     if (h < 0 || h > 23) return null;
     if (min < 0 || min > 59) return null;
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function ensureSession(ctx) {
+    if (!ctx.session) ctx.session = {};
+    return ctx.session;
+}
+
+function clearPendingAdd(session) {
+    delete session.pendingEntityType;
+    delete session.pendingNotifyEntityType;
+    delete session.pendingNotifyEntityKey;
+}
+
+function parseSettimeArg(messageText) {
+    const raw = String(messageText ?? '').trim();
+    const m = raw.match(/^\/settime(?:@\w+)?\s*(.*)$/i);
+    return m ? m[1].trim() : '';
+}
+
+async function applyUserSendTime(ctx, db, T, timeText) {
+    const lang = db.getTgUserLang(ctx.from.id) || 'ru';
+    const L = T[lang] || T.ru;
+    const normalized = normalizeHHMM(timeText);
+    if (!normalized) {
+        await ctx.reply(L.set_time_prompt);
+        return false;
+    }
+    db.updateTgUserSendTime(ctx.from.id, normalized);
+    const session = ensureSession(ctx);
+    delete session.pendingSetTime;
+    clearPendingAdd(session);
+    await ctx.reply(L.time_updated(normalized));
+    return true;
 }
 
 /** Shared: fetch schedule and return formatted text (header + body). Used by private /start inline and by inline results. */
@@ -128,7 +168,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             ]));
         } catch (e) {
             console.error('[tgbot] start', e);
-            ctx.reply(T.ru.error(e.message)).catch(() => {});
+            ctx.reply(T.ru.error(e.message)).catch(() => { });
         }
     });
 
@@ -145,7 +185,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
                 [Markup.button.callback(L.change_lang, 'pv_set_lang')]
             ]));
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -158,7 +198,41 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
                 [Markup.button.callback(L.lang_ru, 'lang_ru'), Markup.button.callback(L.lang_en, 'lang_en')]
             ]));
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
+        }
+    });
+
+    async function finishPrivateSubscription(ctx, silent) {
+        const session = ctx.session || {};
+        const entityType = session.pendingNotifyEntityType;
+        const entityKey = session.pendingNotifyEntityKey;
+        if (!entityType || !entityKey) {
+            await ctx.answerCbQuery();
+            return;
+        }
+        const lang = db.getTgUserLang(ctx.from.id) || 'ru';
+        const L = T[lang] || T.ru;
+        const entity = `${entityType} ${entityKey}`;
+        db.addTgSubscription(ctx.from.id, entityType, entityKey, '07:00', silent);
+        delete session.pendingNotifyEntityType;
+        delete session.pendingNotifyEntityKey;
+        await ctx.answerCbQuery();
+        await ctx.reply(L.sub_added(entity, silent));
+    }
+
+    bot.action('pv_notify_silent', async (ctx) => {
+        try {
+            await finishPrivateSubscription(ctx, true);
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => { });
+        }
+    });
+
+    bot.action('pv_notify_loud', async (ctx) => {
+        try {
+            await finishPrivateSubscription(ctx, false);
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -168,38 +242,59 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             const lang = db.getTgUserLang(ctx.from.id) || 'ru';
             const L = T[lang] || T.ru;
             await ctx.answerCbQuery();
-            ctx.session = ctx.session || {};
-            ctx.session.pendingEntityType = entityType;
+            const session = ensureSession(ctx);
+            delete session.pendingSetTime;
+            clearPendingAdd(session);
+            session.pendingEntityType = entityType;
             await ctx.reply(L.enter_entity(L[entityType]));
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
+        }
+    });
+
+    bot.command('settime', async (ctx, next) => {
+        try {
+            if (ctx.chat.type !== 'private') return next();
+            const lang = db.getTgUserLang(ctx.from.id) || 'ru';
+            const L = T[lang] || T.ru;
+            const arg = parseSettimeArg(ctx.message && ctx.message.text);
+            if (!arg) {
+                const session = ensureSession(ctx);
+                clearPendingAdd(session);
+                session.pendingSetTime = true;
+                await ctx.reply(L.set_time_prompt);
+                return;
+            }
+            await applyUserSendTime(ctx, db, T, arg);
+        } catch (e) {
+            console.error('[tgbot] settime', e);
+            ctx.reply(T.ru.error(e.message)).catch(() => { });
         }
     });
 
     bot.on('text', async (ctx, next) => {
         try {
-            const session = ctx.session || {};
             const text = (ctx.message && ctx.message.text || '').trim();
-            const pending = session.pendingEntityType;
-            if (pending && text) {
-                db.addTgSubscription(ctx.from.id, pending, text, '07:00');
-                const lang = db.getTgUserLang(ctx.from.id) || 'ru';
-                const L = T[lang] || T.ru;
-                delete session.pendingEntityType;
-                await ctx.reply(L.sub_added(`${pending} ${text}`));
+            if (/^\/settime(?:@\w+)?/i.test(text)) return next();
+
+            const session = ensureSession(ctx);
+
+            if (session.pendingSetTime) {
+                await applyUserSendTime(ctx, db, T, text);
                 return;
             }
-            if (session.pendingSetTime) {
-                const normalized = normalizeHHMM(text);
+
+            const pending = session.pendingEntityType;
+            if (pending && text) {
                 const lang = db.getTgUserLang(ctx.from.id) || 'ru';
                 const L = T[lang] || T.ru;
-                if (!normalized) {
-                    await ctx.reply(L.set_time_prompt);
-                    return;
-                }
-                db.updateTgUserSendTime(ctx.from.id, normalized);
-                delete session.pendingSetTime;
-                await ctx.reply(L.time_updated(normalized));
+                const entity = `${pending} ${text}`;
+                session.pendingNotifyEntityType = pending;
+                session.pendingNotifyEntityKey = text;
+                delete session.pendingEntityType;
+                await ctx.reply(L.choose_notify_prompt(entity), Markup.inlineKeyboard([
+                    [Markup.button.callback(L.notify_silent_btn, 'pv_notify_silent'), Markup.button.callback(L.notify_loud_btn, 'pv_notify_loud')]
+                ]));
                 return;
             }
             next();
@@ -217,7 +312,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             if (!subs || subs.length === 0) return ctx.reply(L.no_subs);
             await ctx.reply(L.my_subs, Markup.inlineKeyboard(buildPrivateSubsKeyboard(subs, L)));
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -230,7 +325,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             await ctx.answerCbQuery();
             await ctx.reply(L.sub_removed);
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -242,7 +337,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             await ctx.answerCbQuery();
             await ctx.reply(L.all_removed);
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -262,14 +357,14 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
                 await ctx.answerCbQuery();
                 return;
             }
-            const entity = `${sub.entity_type} ${sub.entity_key}`;
+            const entity = subscriptionEntityLabel(sub);
             await ctx.answerCbQuery(next ? L.silent_enabled(entity) : L.silent_disabled(entity));
             const updated = db.getTgUserSubscriptions(ctx.from.id);
             if (updated.length > 0) {
-                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildPrivateSubsKeyboard(updated, L)).reply_markup).catch(() => {});
+                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildPrivateSubsKeyboard(updated, L)).reply_markup).catch(() => { });
             }
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -278,11 +373,12 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             const lang = db.getTgUserLang(ctx.from.id) || 'ru';
             const L = T[lang] || T.ru;
             await ctx.answerCbQuery();
+            const session = ensureSession(ctx);
+            clearPendingAdd(session);
+            session.pendingSetTime = true;
             await ctx.reply(L.set_time_prompt);
-            ctx.session = ctx.session || {};
-            ctx.session.pendingSetTime = true;
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 }

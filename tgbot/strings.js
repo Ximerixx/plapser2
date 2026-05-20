@@ -23,7 +23,12 @@ const T = {
         remove_subs: 'Удалить подписки',
         choose_entity_type: 'Выберите тип:',
         enter_entity: (type) => `Введите или выберите ${type}:`,
-        sub_added: (entity) => `Подписка на ${entity} добавлена. Рассылка по умолчанию в 07:00 МСК.`,
+        choose_notify_prompt: (entity) => `Подписка на ${entity}. Как доставлять ежедневную рассылку в 07:00 МСК?`,
+        notify_silent_btn: 'Без звука',
+        notify_loud_btn: 'Со звуком',
+        sub_added: (entity, silent) => silent
+            ? `Подписка на ${entity} добавлена. Рассылка без звука в 07:00 МСК. Время можно изменить в меню.`
+            : `Подписка на ${entity} добавлена. Рассылка со звуком в 07:00 МСК. Время можно изменить в меню.`,
         sub_removed: 'Подписка удалена.',
         all_removed: 'Все подписки удалены.',
         remove_all_subs_btn: 'Удалить все подписки',
@@ -37,10 +42,11 @@ const T = {
         choose_lang: 'Выберите язык:',
         lang_ru: 'Русский',
         lang_en: 'English',
-        silent_btn: (isSilent, label) => (isSilent ? '🔕 ' : '🔔 ') + label,
+        make_silent_btn: (entity) => `Сделать рассылку ${entity} безшумной`,
+        make_loud_btn: (entity) => `Сделать рассылку ${entity} со звуком`,
         silent_enabled: (entity) => `Рассылка без звука: ${entity}`,
         silent_disabled: (entity) => `Рассылка со звуком: ${entity}`,
-        remove_sub_btn: '✕'
+        remove_sub_btn: (entity) => `Удалить подписку ${entity}`
     },
     en: {
         hint_first: 'Enter: group, teacher or auditory',
@@ -63,7 +69,12 @@ const T = {
         remove_subs: 'Remove subscriptions',
         choose_entity_type: 'Choose type:',
         enter_entity: (type) => `Enter or select ${type}:`,
-        sub_added: (entity) => `Subscribed to ${entity}. Delivery by default at 07:00 MSK.`,
+        choose_notify_prompt: (entity) => `Subscription to ${entity}. How should daily delivery at 07:00 MSK notify you?`,
+        notify_silent_btn: 'Silent',
+        notify_loud_btn: 'With sound',
+        sub_added: (entity, silent) => silent
+            ? `Subscribed to ${entity}. Silent delivery at 07:00 MSK. Change time in the menu.`
+            : `Subscribed to ${entity}. Delivery with sound at 07:00 MSK. Change time in the menu.`,
         sub_removed: 'Subscription removed.',
         all_removed: 'All subscriptions removed.',
         remove_all_subs_btn: 'Remove all subscriptions',
@@ -77,10 +88,11 @@ const T = {
         choose_lang: 'Choose language:',
         lang_ru: 'Russian',
         lang_en: 'English',
-        silent_btn: (isSilent, label) => (isSilent ? '🔕 ' : '🔔 ') + label,
+        make_silent_btn: (entity) => `Make ${entity} delivery silent`,
+        make_loud_btn: (entity) => `Make ${entity} delivery with sound`,
         silent_enabled: (entity) => `Silent delivery: ${entity}`,
         silent_disabled: (entity) => `Delivery with sound: ${entity}`,
-        remove_sub_btn: '✕'
+        remove_sub_btn: (entity) => `Remove subscription ${entity}`
     }
 };
 

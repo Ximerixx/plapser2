@@ -2,13 +2,51 @@
 
 const { Markup } = require('telegraf');
 
+function subscriptionEntityLabel(sub) {
+    return `${sub.entity_type} ${sub.entity_key}`;
+}
+
 function buildGroupSubsKeyboard(subs, L) {
-    const keyboard = subs.map(s => [
-        Markup.button.callback(L.silent_btn(!!s.silent, `${s.entity_type} ${s.entity_key}`), `tg_silent_${s.id}`),
-        Markup.button.callback(L.remove_sub_btn, `tg_rm_${s.id}`)
-    ]);
+    const keyboard = subs.map(s => {
+        const entity = subscriptionEntityLabel(s);
+        return [
+            Markup.button.callback(s.silent ? L.make_loud_btn(entity) : L.make_silent_btn(entity), `tg_silent_${s.id}`),
+            Markup.button.callback(L.remove_sub_btn(entity), `tg_rm_${s.id}`)
+        ];
+    });
     keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'tg_rm_all')]);
     return keyboard;
+}
+
+function normalizeHHMM(text) {
+    const s = String(text ?? '').trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+    if (h < 0 || h > 23) return null;
+    if (min < 0 || min > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function ensureSession(ctx) {
+    if (!ctx.session) ctx.session = {};
+    return ctx.session;
+}
+
+function clearPendingGroupAdd(session) {
+    delete session.pendingGroupEntityType;
+    delete session.pendingGroupChatId;
+    delete session.pendingNotifyEntityType;
+    delete session.pendingNotifyEntityKey;
+    delete session.pendingNotifyChatId;
+}
+
+function parseSettimeArg(messageText) {
+    const raw = String(messageText ?? '').trim();
+    const m = raw.match(/^\/settime(?:@\w+)?\s*(.*)$/i);
+    return m ? m[1].trim() : '';
 }
 
 function isAdmin(ctx) {
@@ -25,6 +63,46 @@ function isAdmin(ctx) {
 }
 
 async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUserAgent }) {
+    async function applyChatSendTime(ctx, timeText) {
+        const chatId = ctx.chat?.id;
+        if (!chatId) return false;
+        const lang = db.getTgChatLang(chatId) || 'ru';
+        const L = T[lang] || T.ru;
+        const normalized = normalizeHHMM(timeText);
+        if (!normalized) {
+            await ctx.reply(L.set_time_prompt);
+            return false;
+        }
+        db.updateTgChatSendTime(chatId, normalized);
+        const session = ensureSession(ctx);
+        delete session.pendingGroupSetTime;
+        clearPendingGroupAdd(session);
+        await ctx.reply(L.time_updated(normalized));
+        return true;
+    }
+
+    bot.command('settime', async (ctx, next) => {
+        try {
+            if (ctx.chat.type === 'private') return next();
+            if (!isAdmin(ctx)) return ctx.reply('Только администраторы.');
+            const chatId = ctx.chat.id;
+            const lang = db.getTgChatLang(chatId) || 'ru';
+            const L = T[lang] || T.ru;
+            const arg = parseSettimeArg(ctx.message && ctx.message.text);
+            if (!arg) {
+                const session = ensureSession(ctx);
+                clearPendingGroupAdd(session);
+                session.pendingGroupSetTime = true;
+                await ctx.reply(L.set_time_prompt);
+                return;
+            }
+            await applyChatSendTime(ctx, arg);
+        } catch (e) {
+            console.error('[tgbot] settime group', e);
+            ctx.reply(T.ru.error(e.message)).catch(() => {});
+        }
+    });
+
     bot.command('setgroup', async (ctx) => {
         try {
             if (ctx.chat.type === 'private') return ctx.reply('Команда для группового чата.');
@@ -38,7 +116,47 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             ]));
         } catch (e) {
             console.error('[tgbot] setgroup', e);
-            ctx.reply(T.ru.error(e.message)).catch(() => {});
+            ctx.reply(T.ru.error(e.message)).catch(() => { });
+        }
+    });
+
+    async function finishGroupSubscription(ctx, silent) {
+        const session = ctx.session || {};
+        const entityType = session.pendingNotifyEntityType;
+        const entityKey = session.pendingNotifyEntityKey;
+        const chatId = session.pendingNotifyChatId;
+        if (!entityType || !entityKey || !chatId) {
+            await ctx.answerCbQuery();
+            return;
+        }
+        const lang = db.getTgChatLang(chatId) || 'ru';
+        const L = T[lang] || T.ru;
+        const entity = `${entityType} ${entityKey}`;
+        db.addTgGroupSub(chatId, entityType, entityKey, '07:00', silent);
+        delete session.pendingNotifyEntityType;
+        delete session.pendingNotifyEntityKey;
+        delete session.pendingNotifyChatId;
+        delete session.pendingGroupEntityType;
+        delete session.pendingGroupChatId;
+        await ctx.answerCbQuery();
+        await ctx.reply(L.sub_added(entity, silent));
+    }
+
+    bot.action('tg_notify_silent', async (ctx) => {
+        try {
+            if (!isAdmin(ctx)) return ctx.answerCbQuery();
+            await finishGroupSubscription(ctx, true);
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => { });
+        }
+    });
+
+    bot.action('tg_notify_loud', async (ctx) => {
+        try {
+            if (!isAdmin(ctx)) return ctx.answerCbQuery();
+            await finishGroupSubscription(ctx, false);
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -50,12 +168,14 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             const L = T[lang] || T.ru;
             await ctx.answerCbQuery();
             await ctx.reply(L.enter_entity(L[entityType]) + '\n(Отправьте название следующим сообщением)');
-            ctx.session = ctx.session || {};
-            ctx.session.pendingGroupEntityType = entityType;
-            ctx.session.pendingGroupChatId = chatId;
+            const session = ensureSession(ctx);
+            delete session.pendingGroupSetTime;
+            clearPendingGroupAdd(session);
+            session.pendingGroupEntityType = entityType;
+            session.pendingGroupChatId = chatId;
         } catch (e) {
             console.error('[tgbot] group type action', e);
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -71,7 +191,7 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             await ctx.reply(L.remove_subs, Markup.inlineKeyboard(buildGroupSubsKeyboard(subs, L)));
         } catch (e) {
             console.error('[tgbot] removesubs', e);
-            ctx.reply(T.ru.error(e.message)).catch(() => {});
+            ctx.reply(T.ru.error(e.message)).catch(() => { });
         }
     });
 
@@ -94,14 +214,14 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
                 await ctx.answerCbQuery();
                 return;
             }
-            const entity = `${sub.entity_type} ${sub.entity_key}`;
+            const entity = subscriptionEntityLabel(sub);
             await ctx.answerCbQuery(next ? L.silent_enabled(entity) : L.silent_disabled(entity));
             const updated = db.getTgSubsByChatId(chatId);
             if (updated.length > 0) {
-                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildGroupSubsKeyboard(updated, L)).reply_markup).catch(() => {});
+                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildGroupSubsKeyboard(updated, L)).reply_markup).catch(() => { });
             }
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -118,7 +238,7 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             await ctx.answerCbQuery();
             await ctx.reply(T.ru.sub_removed);
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
@@ -132,25 +252,43 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             await ctx.answerCbQuery();
             await ctx.reply(L.all_removed);
         } catch (e) {
-            ctx.answerCbQuery().catch(() => {});
+            ctx.answerCbQuery().catch(() => { });
         }
     });
 
     bot.on('text', async (ctx, next) => {
         try {
             if (ctx.chat.type === 'private') return next();
-            const session = ctx.session || {};
+            const text = (ctx.message && ctx.message.text || '').trim();
+            if (/^\/settime(?:@\w+)?/i.test(text)) return next();
+
+            const session = ensureSession(ctx);
+
+            if (session.pendingGroupSetTime) {
+                if (!isAdmin(ctx)) {
+                    delete session.pendingGroupSetTime;
+                    return next();
+                }
+                await applyChatSendTime(ctx, text);
+                return;
+            }
+
             const pending = session.pendingGroupEntityType;
             if (!pending) return next();
-            const entityKey = (ctx.message && ctx.message.text || '').trim();
+            const entityKey = text;
             if (!entityKey) return next();
             const chatId = ctx.chat.id;
-            db.addTgGroupSub(chatId, pending, entityKey, '07:00');
-            delete session.pendingGroupEntityType;
-            delete session.pendingGroupChatId;
             const lang = db.getTgChatLang(chatId) || 'ru';
             const L = T[lang] || T.ru;
-            await ctx.reply(L.sub_added(`${pending} ${entityKey}`));
+            const entity = `${pending} ${entityKey}`;
+            session.pendingNotifyEntityType = pending;
+            session.pendingNotifyEntityKey = entityKey;
+            session.pendingNotifyChatId = chatId;
+            delete session.pendingGroupEntityType;
+            delete session.pendingGroupChatId;
+            await ctx.reply(L.choose_notify_prompt(entity), Markup.inlineKeyboard([
+                [Markup.button.callback(L.notify_silent_btn, 'tg_notify_silent'), Markup.button.callback(L.notify_loud_btn, 'tg_notify_loud')]
+            ]));
         } catch (e) {
             next();
         }

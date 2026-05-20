@@ -1142,18 +1142,19 @@ function getTgSubsByChatId(chatId) {
     return d.prepare('SELECT * FROM tgbot_subscriptions WHERE chat_id = ? AND type = ? ORDER BY id').all(String(chatId), 'group');
 }
 
-function addTgGroupSub(chatId, entityType, entityKey, toSendTime = '07:00') {
+function addTgGroupSub(chatId, entityType, entityKey, toSendTime = '07:00', silent = 0) {
     const d = getDb();
     const now = Math.floor(Date.now() / 1000);
+    const silentVal = silent ? 1 : 0;
     const existing = d.prepare('SELECT id FROM tgbot_subscriptions WHERE chat_id = ? AND type = ? AND entity_type = ? AND entity_key = ?').get(String(chatId), 'group', entityType, entityKey);
     if (existing) {
-        d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE id = ?').run(toSendTime, now, existing.id);
+        d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, silent = ?, updated_at = ? WHERE id = ?').run(toSendTime, silentVal, now, existing.id);
         return existing.id;
     }
     const r = d.prepare(`
-        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, requested_at, updated_at)
-        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
-    `).run('group', String(chatId), entityType, entityKey, toSendTime, now, now);
+        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, silent, requested_at, updated_at)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+    `).run('group', String(chatId), entityType, entityKey, toSendTime, silentVal, now, now);
     return r.lastInsertRowid;
 }
 
@@ -1172,13 +1173,14 @@ function getTgUserSubscriptions(userId) {
     return d.prepare('SELECT * FROM tgbot_subscriptions WHERE user_id = ? AND type = ? ORDER BY id').all(String(userId), 'private');
 }
 
-function addTgSubscription(userId, entityType, entityKey, toSendTime = '07:00') {
+function addTgSubscription(userId, entityType, entityKey, toSendTime = '07:00', silent = 0) {
     const d = getDb();
     const now = Math.floor(Date.now() / 1000);
+    const silentVal = silent ? 1 : 0;
     const r = d.prepare(`
-        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, requested_at, updated_at)
-        VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-    `).run('private', String(userId), entityType, entityKey, toSendTime, now, now);
+        INSERT INTO tgbot_subscriptions (type, chat_id, user_id, entity_type, entity_key, to_send_time, silent, requested_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+    `).run('private', String(userId), entityType, entityKey, toSendTime, silentVal, now, now);
     return r.lastInsertRowid;
 }
 
@@ -1236,6 +1238,13 @@ function updateTgUserSendTime(userId, toSendTime) {
     const d = getDb();
     const now = Math.floor(Date.now() / 1000);
     return d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE user_id = ? AND type = ?').run(toSendTime, now, String(userId), 'private');
+}
+
+/** Update to_send_time for all group subscriptions of a chat. */
+function updateTgChatSendTime(chatId, toSendTime) {
+    const d = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    return d.prepare('UPDATE tgbot_subscriptions SET to_send_time = ?, updated_at = ? WHERE chat_id = ? AND type = ?').run(toSendTime, now, String(chatId), 'group');
 }
 
 /** Toggle silent flag on a subscription (scoped to owner). Returns new silent value (0|1) or null if not found. */
@@ -1367,6 +1376,7 @@ module.exports = {
     getTgChatLang,
     setTgChatLang,
     updateTgUserSendTime,
+    updateTgChatSendTime,
     toggleTgSubscriptionSilent,
     setTgSubscriptionSilent,
     getOrCreateTgInlineLutId,
