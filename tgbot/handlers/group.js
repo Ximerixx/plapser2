@@ -2,6 +2,15 @@
 
 const { Markup } = require('telegraf');
 
+function buildGroupSubsKeyboard(subs, L) {
+    const keyboard = subs.map(s => [
+        Markup.button.callback(L.silent_btn(!!s.silent, `${s.entity_type} ${s.entity_key}`), `tg_silent_${s.id}`),
+        Markup.button.callback(L.remove_sub_btn, `tg_rm_${s.id}`)
+    ]);
+    keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'tg_rm_all')]);
+    return keyboard;
+}
+
 function isAdmin(ctx) {
     const chat = ctx.chat;
     if (!chat || chat.type === 'private') return true;
@@ -59,12 +68,40 @@ async function registerGroupHandlers(bot, { db, apiBaseUrl, getLists, T, buildUs
             const lang = db.getTgChatLang(chatId) || 'ru';
             const L = T[lang] || T.ru;
             if (!subs || subs.length === 0) return ctx.reply(L.no_subs);
-            const keyboard = subs.map(s => [Markup.button.callback(`${s.entity_type} ${s.entity_key}`, `tg_rm_${s.id}`)]);
-            keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'tg_rm_all')]);
-            await ctx.reply(L.remove_subs, Markup.inlineKeyboard(keyboard));
+            await ctx.reply(L.remove_subs, Markup.inlineKeyboard(buildGroupSubsKeyboard(subs, L)));
         } catch (e) {
             console.error('[tgbot] removesubs', e);
             ctx.reply(T.ru.error(e.message)).catch(() => {});
+        }
+    });
+
+    bot.action(/^tg_silent_(\d+)$/, async (ctx) => {
+        try {
+            if (!isAdmin(ctx)) return ctx.answerCbQuery();
+            const id = parseInt(ctx.match[1], 10);
+            const chatId = ctx.callbackQuery?.message?.chat?.id;
+            if (!chatId) return ctx.answerCbQuery();
+            const subs = db.getTgSubsByChatId(chatId);
+            const sub = subs.find(s => s.id === id);
+            if (!sub) {
+                await ctx.answerCbQuery();
+                return;
+            }
+            const lang = db.getTgChatLang(chatId) || 'ru';
+            const L = T[lang] || T.ru;
+            const next = db.toggleTgSubscriptionSilent(id, { chatId });
+            if (next === null) {
+                await ctx.answerCbQuery();
+                return;
+            }
+            const entity = `${sub.entity_type} ${sub.entity_key}`;
+            await ctx.answerCbQuery(next ? L.silent_enabled(entity) : L.silent_disabled(entity));
+            const updated = db.getTgSubsByChatId(chatId);
+            if (updated.length > 0) {
+                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildGroupSubsKeyboard(updated, L)).reply_markup).catch(() => {});
+            }
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => {});
         }
     });
 

@@ -28,6 +28,15 @@ function getWeekDates(baseDate) {
     return out;
 }
 
+function buildPrivateSubsKeyboard(subs, L) {
+    const keyboard = subs.map(s => [
+        Markup.button.callback(L.silent_btn(!!s.silent, `${s.entity_type} ${s.entity_key}`), `pv_silent_${s.id}`),
+        Markup.button.callback(L.remove_sub_btn, `pv_rm_${s.id}`)
+    ]);
+    keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'pv_rm_all')]);
+    return keyboard;
+}
+
 function normalizeHHMM(text) {
     const s = String(text ?? '').trim();
     const m = s.match(/^(\d{1,2}):(\d{2})$/);
@@ -206,9 +215,7 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             const L = T[lang] || T.ru;
             await ctx.answerCbQuery();
             if (!subs || subs.length === 0) return ctx.reply(L.no_subs);
-            const keyboard = subs.map(s => [Markup.button.callback(`${s.entity_type} ${s.entity_key}`, `pv_rm_${s.id}`)]);
-            keyboard.push([Markup.button.callback(L.remove_all_subs_btn, 'pv_rm_all')]);
-            await ctx.reply(L.my_subs, Markup.inlineKeyboard(keyboard));
+            await ctx.reply(L.my_subs, Markup.inlineKeyboard(buildPrivateSubsKeyboard(subs, L)));
         } catch (e) {
             ctx.answerCbQuery().catch(() => {});
         }
@@ -234,6 +241,33 @@ async function registerPrivateHandlers(bot, { db, jsapi, buildUserAgent, T, form
             const L = T[lang] || T.ru;
             await ctx.answerCbQuery();
             await ctx.reply(L.all_removed);
+        } catch (e) {
+            ctx.answerCbQuery().catch(() => {});
+        }
+    });
+
+    bot.action(/^pv_silent_(\d+)$/, async (ctx) => {
+        try {
+            const id = parseInt(ctx.match[1], 10);
+            const lang = db.getTgUserLang(ctx.from.id) || 'ru';
+            const L = T[lang] || T.ru;
+            const subs = db.getTgUserSubscriptions(ctx.from.id);
+            const sub = subs.find(s => s.id === id);
+            if (!sub) {
+                await ctx.answerCbQuery();
+                return;
+            }
+            const next = db.toggleTgSubscriptionSilent(id, { userId: ctx.from.id });
+            if (next === null) {
+                await ctx.answerCbQuery();
+                return;
+            }
+            const entity = `${sub.entity_type} ${sub.entity_key}`;
+            await ctx.answerCbQuery(next ? L.silent_enabled(entity) : L.silent_disabled(entity));
+            const updated = db.getTgUserSubscriptions(ctx.from.id);
+            if (updated.length > 0) {
+                await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(buildPrivateSubsKeyboard(updated, L)).reply_markup).catch(() => {});
+            }
         } catch (e) {
             ctx.answerCbQuery().catch(() => {});
         }

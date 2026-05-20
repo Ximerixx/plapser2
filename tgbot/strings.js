@@ -36,7 +36,11 @@ const T = {
         link_expired: 'Ссылка устарела или не найдена. Выберите расписание снова в поиске.',
         choose_lang: 'Выберите язык:',
         lang_ru: 'Русский',
-        lang_en: 'English'
+        lang_en: 'English',
+        silent_btn: (isSilent, label) => (isSilent ? '🔕 ' : '🔔 ') + label,
+        silent_enabled: (entity) => `Рассылка без звука: ${entity}`,
+        silent_disabled: (entity) => `Рассылка со звуком: ${entity}`,
+        remove_sub_btn: '✕'
     },
     en: {
         hint_first: 'Enter: group, teacher or auditory',
@@ -72,7 +76,11 @@ const T = {
         link_expired: 'Link expired or not found. Try choosing the schedule again from search.',
         choose_lang: 'Choose language:',
         lang_ru: 'Russian',
-        lang_en: 'English'
+        lang_en: 'English',
+        silent_btn: (isSilent, label) => (isSilent ? '🔕 ' : '🔔 ') + label,
+        silent_enabled: (entity) => `Silent delivery: ${entity}`,
+        silent_disabled: (entity) => `Delivery with sound: ${entity}`,
+        remove_sub_btn: '✕'
     }
 };
 
