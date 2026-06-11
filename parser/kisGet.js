@@ -77,16 +77,59 @@ function loadUserAgents() {
 function pickRandomUserAgent() {
     const list = loadUserAgents();
     if (list.length === 0) return null;
-    return list[Math.floor(Math.random() * list.length)];
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const sanitized = sanitizeHeaderUserAgent(
+            list[Math.floor(Math.random() * list.length)]
+        );
+        if (sanitized) return sanitized;
+    }
+    return null;
 }
 
-function sanitizeRelayUserAgent(ua) {
+/** Lower/upper Cyrillic → Latin (GOST-like) for HTTP headers. */
+const CYRILLIC_TO_LATIN = {
+    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z',
+    и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
+    с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh',
+    щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+    і: 'i', ї: 'yi', є: 'ye', ґ: 'g',
+    А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'Yo', Ж: 'Zh', З: 'Z',
+    И: 'I', Й: 'Y', К: 'K', Л: 'L', М: 'M', Н: 'N', О: 'O', П: 'P', Р: 'R',
+    С: 'S', Т: 'T', У: 'U', Ф: 'F', Х: 'Kh', Ц: 'Ts', Ч: 'Ch', Ш: 'Sh',
+    Щ: 'Shch', Ъ: '', Ы: 'Y', Ь: '', Э: 'E', Ю: 'Yu', Я: 'Ya',
+    І: 'I', Ї: 'Yi', Є: 'Ye', Ґ: 'G',
+};
+
+function transliterateCyrillic(text) {
+    let out = '';
+    for (const ch of text) {
+        if (Object.prototype.hasOwnProperty.call(CYRILLIC_TO_LATIN, ch)) {
+            out += CYRILLIC_TO_LATIN[ch];
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+/**
+ * HTTP User-Agent: только printable ASCII (Node ERR_INVALID_CHAR иначе).
+ * Кириллица → транслит (в логах KIS будет latin, не мусор).
+ * Emoji и прочий unicode → выкидываем.
+ */
+function sanitizeHeaderUserAgent(ua) {
     if (!ua || typeof ua !== 'string') return null;
-    const trimmed = ua.replace(/[\x00-\x1f\x7f]/g, ' ').trim();
-    if (!trimmed) return null;
-    return trimmed.length > MAX_RELAY_UA_LENGTH
-        ? trimmed.slice(0, MAX_RELAY_UA_LENGTH)
-        : trimmed;
+    let cleaned = ua.replace(/[\x00-\x1f\x7f\r\n]/g, ' ');
+    cleaned = transliterateCyrillic(cleaned);
+    cleaned = cleaned.replace(/\p{Extended_Pictographic}+/gu, '');
+    cleaned = cleaned
+        .replace(/[^\x20-\x7e]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return null;
+    return cleaned.length > MAX_RELAY_UA_LENGTH
+        ? cleaned.slice(0, MAX_RELAY_UA_LENGTH)
+        : cleaned;
 }
 
 function isBlockedRelayUserAgent(ua) {
@@ -113,7 +156,7 @@ function resolveKisUserAgent(opts) {
             const picked = pickRandomUserAgent();
             if (picked) return picked;
         } else if (opts?.userAgent && !isBlockedRelayUserAgent(opts.userAgent)) {
-            const sanitized = sanitizeRelayUserAgent(opts.userAgent);
+            const sanitized = sanitizeHeaderUserAgent(opts.userAgent);
             if (sanitized) return sanitized;
         }
         const picked = pickRandomUserAgent();
@@ -156,8 +199,9 @@ function buildAxiosConfig(userAgent, validateStatus) {
         validateStatus: validateStatus || ((status) => status >= 200 && status < 300),
         maxRedirects: 5,
     };
-    if (userAgent) {
-        cfg.headers = { 'User-Agent': userAgent };
+    const safeUa = sanitizeHeaderUserAgent(userAgent);
+    if (safeUa) {
+        cfg.headers = { 'User-Agent': safeUa };
     }
     applyKisProxyToAxiosConfig(cfg);
     return cfg;
@@ -235,6 +279,7 @@ module.exports = {
     resolveKisUserAgent,
     pickRandomUserAgent,
     loadUserAgents,
-    probeKisServerResponse,
+    sanitizeHeaderUserAgent,
+    transliterateCyrillic,
     startKisServerHealthCheck,
 };
