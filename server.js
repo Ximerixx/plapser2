@@ -8,7 +8,12 @@ const { Worker } = require('worker_threads');
 const cron = require('node-cron');
 
 const { loadTgbotConfig } = require('./tgbot/config.loader');
+const { loadKisConfig } = require('./config/kis.loader');
+const { initKisProxy, startKisProxyHealthCheck } = require('./kisproxifier');
+const { initKisFetch } = require('./parser/kisGet');
 const tgbotConfig = loadTgbotConfig();
+const kisConfig = loadKisConfig();
+initKisFetch(kisConfig);
 
 let dbLayer = null;
 try {
@@ -1026,6 +1031,7 @@ app.get('/searchStudent', (req, res) => {
 });
 
 app.listen(port, () => {
+    startKisProxyHealthCheck(kisConfig);
     console.log(`server ok! prealoading top...`);
     setImmediate(runTopRecalc);
     setInterval(runTopRecalc, TOP_RECALC_INTERVAL_MS);

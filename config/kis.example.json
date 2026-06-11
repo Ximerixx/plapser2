@@ -1,0 +1,5 @@
+{
+  "KIS_PROXY": "socks5://127.0.0.1:7890",
+  "KIS_RELAY_CLIENT_USER_AGENT": false,
+  "KIS_RANDOM_USER_AGENT": true
+}

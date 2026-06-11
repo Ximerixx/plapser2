@@ -1,11 +1,11 @@
-const axios = require('axios');
 const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
+const { kisGet } = require('./kisGet');
 
 const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
 
-async function parseTeacher(date, teacher) {
+async function parseTeacher(date, teacher, opts = null) {
     if (!teacher) {
         throw new Error('Параметр "teacher" обязателен');
     }
@@ -15,7 +15,7 @@ async function parseTeacher(date, teacher) {
     }
 
     const url = `https://kis.vgltu.ru/schedule?teacher=${encodeURIComponent(teacher)}&date=${date}`;
-    const response = await axios.get(url);
+    const response = await kisGet(url, opts);
     const $ = cheerio.load(response.data);
 
     const result = {};
