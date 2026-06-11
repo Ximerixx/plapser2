@@ -1,19 +1,15 @@
 'use strict';
 
 /**
- * KIS proxy: agent factory, probe, health-check.
+ * KIS proxy: agent factory, probe через прокси, health-check прокси.
  * Отдельно от tgbot/TELEGRAM_PROXY.
  */
 const axios = require('axios');
 
-const KIS_PROBE_URL =
-    process.env.KIS_PROBE_URL || 'https://kis.vgltu.ru/list?type=Group';
-const KIS_PROXY_HEALTH_INTERVAL_MS = Number(
-    process.env.KIS_PROXY_HEALTH_INTERVAL_MS || 60 * 1000
-);
-
 let proxyUrlConfigured = null;
 let proxyAgent = null;
+let probeUrl = 'https://kis.vgltu.ru/list?type=Group';
+let proxyHealthIntervalMs = 60 * 1000;
 let healthCheckStarted = false;
 
 function createKisProxyAgent(proxyUrl) {
@@ -49,6 +45,10 @@ function createKisProxyAgent(proxyUrl) {
 
 function initKisProxy(config) {
     proxyUrlConfigured = config?.proxyUrl || null;
+    if (config?.probeUrl) probeUrl = config.probeUrl;
+    if (config?.proxyHealthIntervalMs != null) {
+        proxyHealthIntervalMs = config.proxyHealthIntervalMs;
+    }
     proxyAgent = proxyUrlConfigured
         ? createKisProxyAgent(proxyUrlConfigured)
         : null;
@@ -84,7 +84,7 @@ function applyKisProxyToAxiosConfig(cfg) {
     return cfg;
 }
 
-async function probeKisReachable(agent, timeoutMs = 12000) {
+async function probeKisViaProxy(agent, timeoutMs = 12000) {
     try {
         const cfg = {
             timeout: timeoutMs,
@@ -96,7 +96,7 @@ async function probeKisReachable(agent, timeoutMs = 12000) {
             cfg.httpAgent = agent;
             cfg.proxy = false;
         }
-        await axios.get(KIS_PROBE_URL, cfg);
+        await axios.get(probeUrl, cfg);
         return true;
     } catch (_) {
         return false;
@@ -118,7 +118,7 @@ async function startKisProxyHealthCheck(config) {
         return;
     }
 
-    const viaProxyOk = await probeKisReachable(getKisProxyAgent(), 12000);
+    const viaProxyOk = await probeKisViaProxy(getKisProxyAgent(), 12000);
     if (!viaProxyOk) {
         console.error(
             '[kis] Через указанный KIS_PROXY не удаётся достучаться до kis.vgltu.ru. Проверьте, что прокси запущен и адрес верный.'
@@ -128,16 +128,16 @@ async function startKisProxyHealthCheck(config) {
     }
 
     setInterval(async () => {
-        const ok = await probeKisReachable(getKisProxyAgent(), 8000);
+        const ok = await probeKisViaProxy(getKisProxyAgent(), 8000);
         if (!ok) {
             console.warn(
                 '[kis] прокси не ответил на проверку (интервал ' +
-                    Math.round(KIS_PROXY_HEALTH_INTERVAL_MS / 1000) +
+                    Math.round(proxyHealthIntervalMs / 1000) +
                     ' с), пересоздаём агент (SOCKS/HTTP)'
             );
             recreateKisProxyAgent();
         }
-    }, KIS_PROXY_HEALTH_INTERVAL_MS);
+    }, proxyHealthIntervalMs);
 }
 
 module.exports = {
@@ -146,8 +146,5 @@ module.exports = {
     getKisProxyAgent,
     recreateKisProxyAgent,
     applyKisProxyToAxiosConfig,
-    probeKisReachable,
     startKisProxyHealthCheck,
-    KIS_PROBE_URL,
-    KIS_PROXY_HEALTH_INTERVAL_MS,
 };

@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * HTTP-клиент для kis.vgltu.ru: User-Agent, axios-запросы, retry при ошибках прокси.
+ * HTTP-клиент для kis.vgltu.ru: User-Agent, axios-запросы, retry при ошибках прокси,
+ * health-check ответов самого KIS-сервера.
  */
 const axios = require('axios');
 const fs = require('fs');
@@ -28,13 +29,13 @@ const PROXY_ERROR_CODES = new Set([
 
 let kisConfig = null;
 let userAgentsCache = null;
+let serverHealthCheckStarted = false;
 
 function ensureInit() {
     if (kisConfig !== null) return;
     try {
-        const { loadKisConfig } = require('../config/kis.loader');
-        const cfg = loadKisConfig();
-        initKisFetch(cfg);
+        const { loadKisConfig } = require('../config/loader');
+        initKisFetch(loadKisConfig());
     } catch (_) {
         initKisFetch({});
     }
@@ -45,6 +46,9 @@ function initKisFetch(config) {
         proxyUrl: null,
         relayClientUserAgent: false,
         randomUserAgent: false,
+        probeUrl: 'https://kis.vgltu.ru/list?type=Group',
+        serverHealthIntervalMs: 60 * 60 * 1000,
+        proxyHealthIntervalMs: 60 * 1000,
     };
     initKisProxy(kisConfig);
 }
@@ -119,6 +123,10 @@ function resolveKisUserAgent(opts) {
     return undefined;
 }
 
+function userAgentForProbe() {
+    return resolveKisUserAgent(null) || pickRandomUserAgent() || undefined;
+}
+
 function isProxyTransportError(err) {
     if (!err) return false;
     if (PROXY_ERROR_CODES.has(err.code)) return true;
@@ -126,10 +134,26 @@ function isProxyTransportError(err) {
     return msg.includes('proxy') || msg.includes('socks') || msg.includes('tunnel');
 }
 
-function buildAxiosConfig(userAgent) {
+function isKisResponseOk(status) {
+    return status >= 200 && status < 400;
+}
+
+function logBadKisResponse(url, status) {
+    if (status === 404) {
+        console.warn(
+            '[kis] KIS вернул 404 для',
+            url,
+            '— возможна блокировка User-Agent; включите KIS_RANDOM_USER_AGENT или KIS_RELAY_CLIENT_USER_AGENT'
+        );
+    } else {
+        console.warn('[kis] KIS вернул некорректный статус', status, 'для', url);
+    }
+}
+
+function buildAxiosConfig(userAgent, validateStatus) {
     const cfg = {
         timeout: 10000,
-        validateStatus: (status) => status >= 200 && status < 300,
+        validateStatus: validateStatus || ((status) => status >= 200 && status < 300),
         maxRedirects: 5,
     };
     if (userAgent) {
@@ -139,13 +163,64 @@ function buildAxiosConfig(userAgent) {
     return cfg;
 }
 
+async function probeKisServerResponse(timeoutMs = 12000) {
+    ensureInit();
+    const url = kisConfig.probeUrl;
+    const cfg = buildAxiosConfig(userAgentForProbe(), () => true);
+    cfg.timeout = timeoutMs;
+    try {
+        const res = await axios.get(url, cfg);
+        return { ok: isKisResponseOk(res.status), status: res.status, url };
+    } catch (err) {
+        const status = err.response?.status;
+        return {
+            ok: false,
+            status,
+            url,
+            error: err.message,
+        };
+    }
+}
+
+async function startKisServerHealthCheck(config) {
+    if (serverHealthCheckStarted) return;
+    serverHealthCheckStarted = true;
+
+    if (config) initKisFetch(config);
+
+    const intervalMs = kisConfig?.serverHealthIntervalMs ?? 60 * 60 * 1000;
+
+    const runProbe = async (label) => {
+        const result = await probeKisServerResponse(label === 'startup' ? 12000 : 15000);
+        if (!result.ok) {
+            const detail = result.status != null
+                ? `status=${result.status}`
+                : (result.error || 'unknown error');
+            console.warn(
+                `[kis] проверка ответа KIS (${label}): сервер недоступен или ответ некорректен (${detail})`
+            );
+        }
+        return result;
+    };
+
+    await runProbe('startup');
+
+    setInterval(() => {
+        runProbe('periodic').catch(() => { });
+    }, intervalMs);
+}
+
 async function kisGet(url, opts = null) {
     ensureInit();
     const userAgent = resolveKisUserAgent(opts);
     const cfg = buildAxiosConfig(userAgent);
     try {
-        return await axios.get(url, cfg);
+        const response = await axios.get(url, cfg);
+        return response;
     } catch (err) {
+        if (err.response && !isKisResponseOk(err.response.status)) {
+            logBadKisResponse(url, err.response.status);
+        }
         if (isKisProxyEnabled() && isProxyTransportError(err)) {
             recreateKisProxyAgent();
             return await axios.get(url, buildAxiosConfig(userAgent));
@@ -160,4 +235,6 @@ module.exports = {
     resolveKisUserAgent,
     pickRandomUserAgent,
     loadUserAgents,
+    probeKisServerResponse,
+    startKisServerHealthCheck,
 };

@@ -135,8 +135,8 @@ db/*.db-shm
 # tgbot config (secrets); use tgbot/config.example.json as template
 tgbot/config.json
 
-# KIS HTTP client config; use config/kis.example.json as template
-config/kis.json
+# Project config (secrets); use config/plapser.example.json as template
+config/plapser.json
 
 #hide the code-workspace file
 *.code-workspace
