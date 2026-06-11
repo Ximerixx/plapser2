@@ -1,6 +1,6 @@
-const axios = require('axios');
 const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
+const { kisGet } = require('./kisGet');
 
 // Auditory page uses 2-3 letter prefixes (ОИС1-242-ОП, ИС2-242-ОБ, ТО1-234-ОТ)
 const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
@@ -8,7 +8,7 @@ const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-async function parseAuditory(date, auditory) {
+async function parseAuditory(date, auditory, opts = null) {
     if (!auditory) {
         throw new Error('Параметр "auditory" обязателен');
     }
@@ -18,7 +18,7 @@ async function parseAuditory(date, auditory) {
     }
 
     const url = `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(auditory)}&date=${date}`;
-    const response = await axios.get(url);
+    const response = await kisGet(url, opts);
     const $ = cheerio.load(response.data);
 
     const result = {};

@@ -1,16 +1,16 @@
-const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
+const { kisGet } = require('./kisGet');
 
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
 
-async function parseStudent(date, group, subgroup = null) {
+async function parseStudent(date, group, subgroup = null, opts = null) {
     try {
         const url = `https://kis.vgltu.ru/schedule?date=${date}&group=${encodeURIComponent(group)}`;
-        const { data } = await axios.get(url);
+        const { data } = await kisGet(url, opts);
         const $ = cheerio.load(data);
 
         const result = {};

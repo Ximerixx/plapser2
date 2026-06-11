@@ -8,7 +8,7 @@
 const { parseStudent } = require('./parser/parseStudent');
 const { parseTeacher } = require('./parser/parseTeacher');
 const { parseAuditory } = require('./parser/parseAuditory');
-const axios = require('axios');
+const { kisGet } = require('./parser/kisGet');
 
 let dbLayer = null;
 try {
@@ -206,7 +206,7 @@ async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
             return { data: normalizeStudentWeekData(weekData), cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseStudent(baseDate, group, subgroup);
+    const parsed = await parseStudent(baseDate, group, subgroup, opts);
     if (parsed) setCachedSchedule(cacheKey, parsed);
     if (opts && parsed) {
         const startTime = opts.startTime || Date.now();
@@ -247,7 +247,7 @@ async function getScheduleTeacher(teacher, baseDate, opts = null) {
             return { data: weekData, cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseTeacher(baseDate, teacher);
+    const parsed = await parseTeacher(baseDate, teacher, opts);
     if (parsed) setCachedSchedule(cacheKey, parsed);
     if (opts && parsed) {
         const startTime = opts.startTime || Date.now();
@@ -288,7 +288,7 @@ async function getScheduleAuditory(auditory, baseDate, opts = null) {
             return { data: weekData, cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseAuditory(baseDate, auditory);
+    const parsed = await parseAuditory(baseDate, auditory, opts);
     if (parsed) setCachedSchedule(cacheKey, parsed);
     if (opts && parsed) {
         const startTime = opts.startTime || Date.now();
@@ -309,7 +309,7 @@ async function getScheduleAuditory(auditory, baseDate, opts = null) {
 
 /** Обновление из источника при refresh (source_asked). */
 async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, opts) {
-    const fullData = await parseStudent(baseDate, group, subgroup);
+    const fullData = await parseStudent(baseDate, group, subgroup, opts);
     const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
     if (fullData) setCachedSchedule(cacheKey, fullData);
     if (dbLayer && fullData && opts) {
@@ -333,7 +333,7 @@ async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, opts) {
 }
 
 async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
-    const fullData = await parseTeacher(baseDate, teacher);
+    const fullData = await parseTeacher(baseDate, teacher, opts);
     const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
     if (fullData) setCachedSchedule(cacheKey, fullData);
     if (dbLayer && fullData && opts) {
@@ -357,7 +357,7 @@ async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
 }
 
 async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
-    const fullData = await parseAuditory(baseDate, auditory);
+    const fullData = await parseAuditory(baseDate, auditory, opts);
     const cacheKey = getScheduleCacheKey('auditory', auditory, baseDate);
     if (fullData) setCachedSchedule(cacheKey, fullData);
     if (dbLayer && fullData && opts) {
@@ -383,7 +383,7 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
 /** Списки групп (для основного процесса — in-memory кэш; воркер вызывает свой API). */
 async function getGroupsList() {
     if (Date.now() - groupsCache.lastUpdated > LIST_CACHE_TTL) {
-        const { data: groups } = await axios.get('https://kis.vgltu.ru/list?type=Group', { timeout: 10000 });
+        const { data: groups } = await kisGet('https://kis.vgltu.ru/list?type=Group', null);
         groupsCache = {
             data: Array.isArray(groups) ? groups.filter(g => typeof g === 'string' && g.trim() !== '') : [],
             lastUpdated: Date.now()
@@ -394,7 +394,7 @@ async function getGroupsList() {
 
 async function getTeachersList() {
     if (Date.now() - teachersCache.lastUpdated > LIST_CACHE_TTL) {
-        const { data: teachers } = await axios.get('https://kis.vgltu.ru/list?type=Teacher', { timeout: 10000 });
+        const { data: teachers } = await kisGet('https://kis.vgltu.ru/list?type=Teacher', null);
         teachersCache = {
             data: Array.isArray(teachers) ? teachers.filter(t => typeof t === 'string' && t.trim() !== '') : [],
             lastUpdated: Date.now()
@@ -405,7 +405,7 @@ async function getTeachersList() {
 
 async function getAuditoriesList() {
     if (Date.now() - auditoriesCache.lastUpdated > LIST_CACHE_TTL) {
-        const { data: list } = await axios.get('https://kis.vgltu.ru/list?type=Auditory', { timeout: 10000 });
+        const { data: list } = await kisGet('https://kis.vgltu.ru/list?type=Auditory', null);
         const auditories = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim() !== '') : [];
         if (dbLayer && dbLayer.ensureAuditory) {
             for (const name of auditories) {

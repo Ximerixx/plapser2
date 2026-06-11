@@ -88,6 +88,39 @@ sudo systemctl enable plapser
 sudo systemctl start plapser
 ```
 
+### Настройка запросов к КИС (proxy и User-Agent)
+
+КИС ВГЛТУ может блокировать запросы с User-Agent `axios/*`. Для обхода используется отдельная конфигурация — **не связана** с `TELEGRAM_PROXY` (прокси для Telegram Bot API).
+
+1. Скопируйте `config/kis.example.json` в `config/kis.json` (файл в git не попадает).
+2. При необходимости укажите прокси и флаги маскировки UA.
+
+Пример (`config/kis.example.json`):
+
+```json
+{
+  "KIS_PROXY": "socks5://127.0.0.1:7890",
+  "KIS_RELAY_CLIENT_USER_AGENT": false,
+  "KIS_RANDOM_USER_AGENT": true
+}
+```
+
+| Параметр | Env | Описание |
+|----------|-----|----------|
+| `KIS_PROXY` | `KIS_PROXY` | Прокси для запросов к kis.vgltu.ru (http/https/socks4/socks5). Пусто = напрямую |
+| `KIS_RELAY_CLIENT_USER_AGENT` | `KIS_RELAY_CLIENT_USER_AGENT` | Пробрасывать User-Agent HTTP-клиента в KIS. Для запросов с `opts.ip === 'telegram'` — всегда случайный UA из списка |
+| `KIS_RANDOM_USER_AGENT` | `KIS_RANDOM_USER_AGENT` | Всегда случайный UA из списка (приоритет выше relay) |
+
+Список браузерных User-Agent: [`config/user-agents.json`](config/user-agents.json) (в репозитории).
+
+Переменные окружения имеют приоритет над `config/kis.json`.
+
+**Health-check KIS-прокси** (только если `KIS_PROXY` задан): при старте probe kis.vgltu.ru через прокси; раз в минуту повторная проверка, при сбое агент пересоздаётся. Модуль: [`kisproxifier.js`](kisproxifier.js). Env: `KIS_PROXY_HEALTH_INTERVAL_MS` (60000), `KIS_PROBE_URL`.
+
+HTTP-запросы к KIS и маскировка User-Agent: [`parser/kisGet.js`](parser/kisGet.js).
+
+Рекомендуемая настройка при блокировке axios: `"KIS_RANDOM_USER_AGENT": true` (и `KIS_PROXY`, если нужен выход через прокси).
+
 ---
 
 ## 🎨 Веб-интерфейс
