@@ -8,12 +8,27 @@ const { Worker } = require('worker_threads');
 const cron = require('node-cron');
 
 const { loadTgbotConfig } = require('./tgbot/config.loader');
-const { loadKisConfig } = require('./config/kis.loader');
-const { initKisProxy, startKisProxyHealthCheck } = require('./kisproxifier');
-const { initKisFetch } = require('./parser/kisGet');
+const { loadPlapserConfig } = require('./config/loader');
+const { startKisProxyHealthCheck } = require('./kisproxifier');
+const { initKisFetch, startKisServerHealthCheck } = require('./parser/kisGet');
 const tgbotConfig = loadTgbotConfig();
-const kisConfig = loadKisConfig();
+const plapserConfig = loadPlapserConfig();
+const kisConfig = plapserConfig.kis;
 initKisFetch(kisConfig);
+
+const { port, timezone: TIMEZONE, staticCacheMaxAgeSeconds: STATIC_CACHE_MAX_AGE_SECONDS } = plapserConfig.server;
+const {
+    topDays: PRELOAD_TOP_DAYS,
+    topLimit: PRELOAD_TOP_LIMIT,
+    topRecalcIntervalMs: TOP_RECALC_INTERVAL_MS,
+    intervalMs: PRELOAD_INTERVAL_MS,
+} = plapserConfig.preload;
+const {
+    enabled: NIGHTLY_WARMUP_ENABLED,
+    timezone: NIGHTLY_WARMUP_TIMEZONE,
+    delayMs: NIGHTLY_WARMUP_DELAY_MS,
+    runOnStart: NIGHTLY_WARMUP_RUN_ON_START,
+} = plapserConfig.warmup;
 
 let dbLayer = null;
 try {
@@ -25,26 +40,6 @@ try {
 const jsapi = require("./jsapi");
 
 const app = express();
-const port = 3000;
-const TIMEZONE = "Europe/Moscow";
-
-// Статика: max-age в секундах (браузер не перезапросит раньше). Для теста — 1 ч; для прода — 86400 (сутки) или 604800 (неделя).
-const STATIC_CACHE_MAX_AGE_SECONDS = 3600;
-
-// Эйджинг: не отдавать из БД данные старше FRESHNESS_HOURS; идти в KIS.
-//const FRESHNESS_HOURS = 2;
-//const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
-
-// Предзагрузка топа: окно для подсчёта запросов (дней), лимит на тип, интервалы (мс).
-const PRELOAD_TOP_DAYS = 7;
-const PRELOAD_TOP_LIMIT = 5;
-const TOP_RECALC_INTERVAL_MS = 30 * 60 * 1000;  // пересчёт топа в 2 раза чаще предзагрузки
-const PRELOAD_INTERVAL_MS = 60 * 60 * 1000;
-
-const NIGHTLY_WARMUP_ENABLED = (process.env.NIGHTLY_WARMUP_ENABLED || 'true') === 'true';
-const NIGHTLY_WARMUP_TIMEZONE = process.env.NIGHTLY_WARMUP_TIMEZONE || 'Europe/Moscow';
-const NIGHTLY_WARMUP_DELAY_MS = Number(process.env.NIGHTLY_WARMUP_DELAY_MS || '1');
-const NIGHTLY_WARMUP_RUN_ON_START = (process.env.NIGHTLY_WARMUP_RUN_ON_START || 'false') === 'true';
 let isWarmupRunning = false;
 
 // Logging utility
@@ -1032,6 +1027,7 @@ app.get('/searchStudent', (req, res) => {
 
 app.listen(port, () => {
     startKisProxyHealthCheck(kisConfig);
+    startKisServerHealthCheck(kisConfig);
     console.log(`server ok! prealoading top...`);
     setImmediate(runTopRecalc);
     setInterval(runTopRecalc, TOP_RECALC_INTERVAL_MS);
