@@ -1,6 +1,7 @@
 'use strict';
 
 let statusText = 'idle';
+let uploadLocked = false;
 let idleTimer = null;
 let doneTtlMs = 300000;
 
@@ -15,6 +16,7 @@ function scheduleIdle() {
     clearIdleTimer();
     idleTimer = setTimeout(() => {
         statusText = 'idle';
+        uploadLocked = false;
         idleTimer = null;
     }, doneTtlMs);
 }
@@ -41,7 +43,8 @@ function setStatus(text) {
 }
 
 function tryBeginUpload() {
-    if (!isIdle()) return false;
+    if (uploadLocked || statusText !== 'idle') return false;
+    uploadLocked = true;
     clearIdleTimer();
     return true;
 }
