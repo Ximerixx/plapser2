@@ -219,21 +219,24 @@ function parseAuditoryParts(rawName) {
     let left = slashIdx >= 0 ? raw.slice(0, slashIdx).trim() : raw;
     const right = slashIdx >= 0 ? raw.slice(slashIdx + 1).trim() : '';
 
-    // Ignore leading section markers (А/Б/В/Г/Д) before actual room token.
+    // Корпусной префикс перед номером (не часть номера кабинета).
     left = left.replace(/^[АБВГД]\s*/iu, '').trim();
     const hasAngl = /англ/iu.test(left);
 
-    // Room number stores only digits by requirement.
-    const roomDigits = (left.match(/\d+/u) || [null])[0];
-    const roomNumber = roomDigits || null;
-
+    // Номер: цифры + опциональная буква подкабинета сразу после (305а ≠ 305б ≠ 305).
+    const digitMatch = left.match(/\d+/u);
+    let roomNumber = null;
     let rest = left;
-    if (roomDigits) {
-        const idx = rest.indexOf(roomDigits);
-        rest = idx >= 0 ? (rest.slice(0, idx) + ' ' + rest.slice(idx + roomDigits.length)).trim() : rest;
+    if (digitMatch) {
+        const idx = digitMatch.index;
+        const digits = digitMatch[0];
+        let consumed = digits.length;
+        const suffixMatch = left.slice(idx + consumed).match(/^([абвгд])/iu);
+        if (suffixMatch) consumed += 1;
+        roomNumber = digits + (suffixMatch ? suffixMatch[1].toLowerCase() : '');
+        rest = (left.slice(0, idx) + ' ' + left.slice(idx + consumed)).trim();
     }
-    // Drop one-letter noise prefixes that sometimes appear before type text.
-    rest = rest.replace(/^[АБВГД]\s*/iu, '').trim();
+
     let roomType = normalizeRoomType(rest);
     if (!roomType && hasAngl) roomType = 'англ';
 
@@ -703,14 +706,47 @@ function getStudentScheduleWeek(groupName, baseDate, subgroup = null) {
     return Object.keys(result).length ? result : null;
 }
 
+function resolveNormalizedAuditoryIdForRead(auditoryName) {
+    const d = getDb();
+    const parts = parseAuditoryParts(auditoryName);
+    if (!parts.rawName) return null;
+
+    let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(parts.rawName);
+    if (row) return row.id;
+
+    if (parts.normalizedKey) {
+        row = d.prepare('SELECT id FROM normalized_auditories WHERE normalized_key = ?').get(parts.normalizedKey);
+        if (row) return row.id;
+    }
+
+    return null;
+}
+
 function getAuditorySchedule(auditoryName, date) {
     const d = getDb();
-    const auditoryRow = d.prepare('SELECT id FROM auditories WHERE name = ?').get(auditoryName);
-    if (!auditoryRow) return null;
 
-    const meta = d.prepare(
-        'SELECT no_lessons FROM schedule_meta WHERE entity_type = ? AND entity_key = ? AND date = ?'
-    ).get('auditory', auditoryName, date);
+    // Старый путь (быстрый откат): только точное совпадение auditories.name
+    // const auditoryRow = d.prepare('SELECT id FROM auditories WHERE name = ?').get(auditoryName);
+    // if (!auditoryRow) return null;
+    // const meta = d.prepare(
+    //     'SELECT no_lessons FROM schedule_meta WHERE entity_type = ? AND entity_key = ? AND date = ?'
+    // ).get('auditory', auditoryName, date);
+    // ...
+    // WHERE s.auditory_id = ? AND s.date = ?
+    // `).all(auditoryRow.id, date);
+
+    const normalizedId = resolveNormalizedAuditoryIdForRead(auditoryName);
+    if (!normalizedId) return null;
+
+    const meta = d.prepare(`
+        SELECT no_lessons FROM schedule_meta
+        WHERE entity_type = 'auditory' AND date = ?
+          AND (entity_key = ? OR entity_key IN (
+              SELECT raw_name FROM normalized_auditories WHERE id = ?
+          ))
+        ORDER BY no_lessons DESC
+        LIMIT 1
+    `).get(date, auditoryName, normalizedId);
     if (meta && meta.no_lessons === 1) {
         const dayOfWeek = getDayOfWeek(date);
         const dateDisplay = formatDateDisplay(date);
@@ -731,9 +767,9 @@ function getAuditorySchedule(auditoryName, date) {
         LEFT JOIN teachers t ON s.teacher_id = t.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
         LEFT JOIN auditories a ON s.auditory_id = a.id
-        WHERE s.auditory_id = ? AND s.date = ?
+        WHERE s.normalized_auditory_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
-    `).all(auditoryRow.id, date);
+    `).all(normalizedId, date);
 
     if (rows.length === 0) return null;
 
