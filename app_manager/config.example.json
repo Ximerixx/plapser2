@@ -1,0 +1,14 @@
+{
+  "UPLOAD_KEYS": {
+    "1": { "publicKeyPath": "keys/upload_public_1.pem" }
+  },
+  "TIMESTAMP_TOLERANCE_SEC": 300,
+  "UPLOAD_MAX_MB": 150,
+  "STATUS_DONE_TTL_MS": 300000,
+  "ROUTES": {
+    "current": "/api/app/current",
+    "uploadAndroid": "/api/app/upload/android",
+    "uploadStatus": "/api/app/upload/status",
+    "staticAndroid": "/api/app/android"
+  }
+}
