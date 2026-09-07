@@ -242,22 +242,32 @@ function parseAuditoryParts(rawName) {
     return { rawName: raw, roomNumber: roomNumber || null, roomType, building, normalizedKey };
 }
 
-function ensureNormalizedAuditory(rawName) {
+function ensureNormalizedAuditory(rawName, parts = null) {
     const d = getDb();
-    const parts = parseAuditoryParts(rawName);
-    if (!parts.rawName) return null;
-    let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(parts.rawName);
+    const p = parts || parseAuditoryParts(rawName);
+    if (!p.rawName) return null;
+    let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(p.rawName);
     if (row) return row.id;
-    row = d.prepare('SELECT id FROM normalized_auditories WHERE normalized_key = ?').get(parts.normalizedKey);
+    row = d.prepare('SELECT id FROM normalized_auditories WHERE normalized_key = ?').get(p.normalizedKey);
     if (row) {
-        d.prepare('UPDATE normalized_auditories SET raw_name = ?, updated_at = unixepoch() WHERE id = ?').run(parts.rawName, row.id);
+        d.prepare('UPDATE normalized_auditories SET raw_name = ?, updated_at = unixepoch() WHERE id = ?').run(p.rawName, row.id);
         return row.id;
     }
     const result = d.prepare(`
         INSERT INTO normalized_auditories (raw_name, room_number, room_type, building, normalized_key, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
-    `).run(parts.rawName, parts.roomNumber, parts.roomType, parts.building, parts.normalizedKey);
+    `).run(p.rawName, p.roomNumber, p.roomType, p.building, p.normalizedKey);
     return result.lastInsertRowid;
+}
+
+/** Один проход parseAuditoryParts → auditories + normalized_auditories для слота. */
+function resolveAuditoryIds(roomName) {
+    const parts = parseAuditoryParts(roomName);
+    if (!parts.rawName) return { auditoryId: null, normalizedAuditoryId: null };
+    return {
+        auditoryId: ensureAuditory(parts.rawName, parts),
+        normalizedAuditoryId: ensureNormalizedAuditory(parts.rawName, parts),
+    };
 }
 
 function migrateNormalizedAuditories(d) {
@@ -476,12 +486,22 @@ function ensureTeacher(name) {
     return result.lastInsertRowid;
 }
 
-function ensureAuditory(name) {
-    if (!name || name.trim() === '') return null;
+function ensureAuditory(name, parts = null) {
+    const p = parts || parseAuditoryParts(name);
+    if (!p.rawName) return null;
     const d = getDb();
-    let row = d.prepare('SELECT id FROM auditories WHERE name = ?').get(name);
+
+    // Та же комната под другим написанием — цепляемся к уже известному raw_name.
+    const normRow = d.prepare('SELECT raw_name FROM normalized_auditories WHERE normalized_key = ?').get(p.normalizedKey);
+    const storageName = normRow ? normRow.raw_name : p.rawName;
+
+    let row = d.prepare('SELECT id FROM auditories WHERE name = ?').get(storageName);
     if (row) return row.id;
-    const result = d.prepare('INSERT INTO auditories (name) VALUES (?)').run(name);
+    if (storageName !== p.rawName) {
+        row = d.prepare('SELECT id FROM auditories WHERE name = ?').get(p.rawName);
+        if (row) return row.id;
+    }
+    const result = d.prepare('INSERT INTO auditories (name) VALUES (?)').run(storageName);
     return result.lastInsertRowid;
 }
 
@@ -973,8 +993,7 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                 const teacherId = lesson.teacher ? ensureTeacher(lesson.teacher) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : null;
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
-                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
-                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
+                const { auditoryId, normalizedAuditoryId } = resolveAuditoryIds(roomName);
                 insertScheduleSlot({
                     date: dateKey,
                     time_start: timeStart,
@@ -1015,8 +1034,7 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                 const [timeStart, timeEnd] = lesson.time.split('-').map(s => s.trim());
                 const subjectId = (lesson.subject && lesson.subject.trim()) ? ensureSubject(lesson.subject.trim()) : null;
                 const roomName = lesson.auditory || lesson.room;
-                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
-                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
+                const { auditoryId, normalizedAuditoryId } = resolveAuditoryIds(roomName);
                 const groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 for (const groupName of groups) {
                     if (!groupName || !groupName.trim()) continue;
@@ -1044,7 +1062,7 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
 function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStatsId = null) {
     if (!parsedResult || typeof parsedResult !== 'object') return;
     const d = getDb();
-    const auditoryId = ensureAuditory(auditoryName);
+    const { auditoryId, normalizedAuditoryId: defaultNormalizedAuditoryId } = resolveAuditoryIds(auditoryName);
 
     const insert = d.transaction((dates) => {
         for (const dateKey of Object.keys(dates)) {
@@ -1063,8 +1081,9 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                 const teacherId = (lesson.teacher && lesson.teacher.trim()) ? ensureTeacher(lesson.teacher.trim()) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : (lesson.subject && lesson.subject.trim() ? ensureSubject(lesson.subject.trim()) : null);
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
-                const lessonAuditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : auditoryId;
-                const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
+                const resolved = resolveAuditoryIds(roomName);
+                const lessonAuditoryId = resolved.auditoryId ?? auditoryId;
+                const normalizedAuditoryId = resolved.normalizedAuditoryId ?? defaultNormalizedAuditoryId;
                 let groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 groups = groups.filter(g => g && g.trim());
                 if (groups.length === 0) groups = ['—'];
