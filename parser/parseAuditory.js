@@ -2,11 +2,14 @@ const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
 const { kisGet } = require('./kisGet');
 
-// Auditory page uses 2-3 letter prefixes (ОИС1-242-ОП, ИС2-242-ОБ, ТО1-234-ОТ)
 const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
+
+function cleanAuditoryName(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
 
 async function parseAuditory(date, auditory, opts = null) {
     if (!auditory) {
@@ -17,13 +20,13 @@ async function parseAuditory(date, auditory, opts = null) {
         throw new Error('Не удалось определить дату');
     }
 
-    const url = `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(auditory)}&date=${date}`;
+    const queryAuditory = cleanAuditoryName(auditory);
+    const url = `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(queryAuditory)}&date=${date}`;
     const response = await kisGet(url, opts);
     const $ = cheerio.load(response.data);
 
     const result = {};
 
-    // Match both "margin-bottom: 25px;" and "margin-bottom: 25px" (no semicolon)
     $('div.table > div[style*="margin-bottom: 25px"]').each((i, block) => {
         const $block = $(block);
         const dateDiv = $block.find('> div').first();
@@ -58,7 +61,7 @@ async function parseAuditory(date, auditory, opts = null) {
                     result[dateKey].lessons.push({ status: 'Нет пар' });
                 }
             } else if (cells.length === 2) {
-                const time = $(cells[0]).text().trim();
+                const time = $(cells[0]).text().trim().replace(/\s+/g, ' ');
 
                 const cellContent = $(cells[1]);
                 const htmlContent = cellContent.html().split(/<br\s*\/?>/i).map(s => s.trim()).filter(Boolean);
@@ -99,21 +102,21 @@ async function parseAuditory(date, auditory, opts = null) {
 
                 const link = cellContent.find('a').text().trim();
                 if (link) {
-                    room = link;
+                    room = cleanAuditoryName(link);
                 }
 
                 const fullNormalized = normalizeSubjectPrefix(subjectLine);
                 const hasPrefix = /^(лаб\.|лек\.|пр\.)\s/.test(fullNormalized);
                 const type = hasPrefix ? fullNormalized.split(/\s/)[0] : '';
 
-                const auditoryName = room || auditory;
+                const auditoryName = room || queryAuditory;
                 result[dateKey].lessons.push({
                     time,
                     type,
                     name: fullNormalized,
                     subject: fullNormalized,
                     subgroup: subgroup || '',
-                    groups: groups.length > 0 ? groups : [auditory],
+                    groups: groups.length > 0 ? groups : [queryAuditory],
                     group: groups.length > 0 ? groups.join(', ') : '',
                     auditory: auditoryName,
                     room: auditoryName,

@@ -1,11 +1,16 @@
 const cheerio = require('cheerio');
-const fs = require('fs');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
 const { kisGet } = require('./kisGet');
 
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
-const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
-const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
+// 2–3 буквы в префиксе (ИС2-244-ОБ и ОИС1-242-ОП)
+const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
+const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
+
+function cleanAuditoryName(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
 
 async function parseStudent(date, group, subgroup = null, opts = null) {
     try {
@@ -15,14 +20,11 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
 
         const result = {};
 
-        // Обработка каждого дня
-        // KIS отдает и "margin-bottom: 25px;" и "margin-bottom: 25px" без точки с запятой — ловим оба варианта
         $('div.table > div[style*="margin-bottom: 25px"]').each((_, dayBlock) => {
             const $day = $(dayBlock);
             const dateText = $day.find('> div > strong').first().text().trim();
             const dayOfWeek = $day.find('> div').eq(1).text().trim();
 
-            // Конвертация даты
             const [day, month, year] = dateText.split(' ');
             const months = {
                 'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
@@ -31,7 +33,6 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
             };
             const dateKey = `${year}-${months[month]}-${day.padStart(2, '0')}`;
 
-            // Инициализация дня
             result[dateKey] = {
                 date: dateText,
                 dayOfWeek: dayOfWeek,
@@ -43,7 +44,7 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
 
             if (noLessons) {
                 result[dateKey].lessons.push({ status: 'Нет пар' });
-                return; // Важно: пропустить обработку занятий
+                return;
             }
 
             let currentTime = null;
@@ -57,22 +58,21 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                 const timeCell = $cells.filter('[style="width:75px"]');
                 const hasTime = timeCell.length > 0;
 
-                // Если это строка с временем
                 if (hasTime) {
                     currentTime = timeCell.text().trim().replace(/\s+/g, ' ');
 
-                    const rowspanAttr = timeCell.attr("rowspan");
+                    const rowspanAttr = timeCell.attr('rowspan');
                     const rowspan = rowspanAttr ? parseInt(rowspanAttr, 10) : 1;
 
                     if (rowspan === 2) {
                         isSubgroupBlock = true;
-                        subgroupLinesLeft = 2; // текущая и следующая
+                        subgroupLinesLeft = 2;
                     } else {
                         isSubgroupBlock = false;
                     }
                 }
 
-                if (!currentTime) return; // если всё ещё нет времени — не продолжаем
+                if (!currentTime) return;
 
                 if (isSubgroupBlock) {
                     subgroupLinesLeft--;
@@ -95,7 +95,6 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                     teacher: ''
                 };
 
-                // Разбивка содержимого на элементы
                 const elements = [];
                 let buffer = '';
 
@@ -109,16 +108,15 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                     } else if (el.name === 'a') {
                         const s = buffer.trim();
                         if (s) elements.push(s);
-                        elements.push({ type: 'auditory', value: $(el).text().trim() });
+                        elements.push({ type: 'auditory', value: cleanAuditoryName($(el).text()) });
                         buffer = '';
                     }
                 });
                 const tail = buffer.trim();
                 if (tail) elements.push(tail);
 
-                // by element things 
                 let hasType = false;
-                elements.forEach((element, idx) => {
+                elements.forEach((element) => {
                     if (typeof element === 'object') {
                         lesson.auditory = element.value;
                         lesson.room = element.value;
@@ -129,7 +127,7 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                         const parts = element.split('.');
                         if (parts.length > 1 && VALID_LESSON_TYPES.has(parts[0].toLowerCase() + '.')) {
                             const fullNormalized = normalizeSubjectPrefix(element);
-                            lesson.type = fullNormalized.split(/\s/)[0]; // "лаб." / "лек." / "пр."
+                            lesson.type = fullNormalized.split(/\s/)[0];
                             lesson.name = fullNormalized;
                             hasType = true;
                         } else {
@@ -158,14 +156,13 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                         return;
                     }
 
-                    if (idx === elements.length - 1 && s.match(/[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/)) {
+                    if (TEACHER_REGEX.test(s)) {
                         lesson.teacher = s.replace(/\.$/, '');
                     }
                 });
 
                 if (subgroup !== undefined && subgroup !== null) {
                     const subgroupStr = String(subgroup);
-
                     if (lesson.subgroup && lesson.subgroup !== subgroupStr) return;
                 }
 
@@ -186,20 +183,6 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
         console.error('parser error:', error.message);
         return null;
     }
-
-
-
 }
-// // usdap
-// async function main() {
-//     const schedule = await parseSchedule('2025-04-21', 'ИС2-244-ОБ');
-//     if (schedule) {
-//         fs.writeFileSync('schedule.json', JSON.stringify(schedule, null, 2));
-//         console.log(schedule);
-//     }
-// }
 
-// main();
-
-
-module.exports = { parseStudent }; 
+module.exports = { parseStudent };

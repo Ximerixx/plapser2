@@ -2,8 +2,13 @@ const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
 const { kisGet } = require('./kisGet');
 
-const GROUP_REGEX = /^[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}$/;
-const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2}\d-\d{3}-[А-ЯЁ]{2}/g;
+const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
+const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
+
+function cleanAuditoryName(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
 
 async function parseTeacher(date, teacher, opts = null) {
     if (!teacher) {
@@ -20,7 +25,6 @@ async function parseTeacher(date, teacher, opts = null) {
 
     const result = {};
 
-    // KIS отдает и "margin-bottom: 25px;" и "margin-bottom: 25px" без точки с запятой — ловим оба варианта
     $('div.table > div[style*="margin-bottom: 25px"]').each((i, block) => {
         const $block = $(block);
         const dateDiv = $block.find('> div').first();
@@ -29,7 +33,6 @@ async function parseTeacher(date, teacher, opts = null) {
         const dateText = dateDiv.find('strong').text().trim();
         const dayOfWeek = dayDiv.text().trim();
 
-        // Преобразуем дату в формат YYYY-MM-DD для ключа
         const [day, monthStr, year] = dateText.split(' ');
         const months = {
             'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
@@ -45,7 +48,9 @@ async function parseTeacher(date, teacher, opts = null) {
             lessons: []
         };
 
-        const rows = $block.find('table tbody tr');
+        const rows = $block.find('table tbody tr').length
+            ? $block.find('table tbody tr')
+            : $block.find('table tr');
 
         rows.each((j, row) => {
             const cells = $(row).find('td');
@@ -56,9 +61,8 @@ async function parseTeacher(date, teacher, opts = null) {
                     result[dateKey].lessons.push({ status: 'Нет пар' });
                 }
             } else if (cells.length === 2) {
-                const time = $(cells[0]).text().trim();
-                
-                // Get all text content split by <br>
+                const time = $(cells[0]).text().trim().replace(/\s+/g, ' ');
+
                 const cellContent = $(cells[1]);
                 const htmlContent = cellContent.html().split(/<br\s*\/?>/i).map(s => s.trim()).filter(Boolean);
 
@@ -67,7 +71,6 @@ async function parseTeacher(date, teacher, opts = null) {
                 let subgroup = '';
                 let room = '';
 
-                // Parse each line of content (trim, skip empty; groups may have trailing space)
                 htmlContent.forEach((line, index) => {
                     const s = $('<div>').html(line).text().trim();
                     if (s === '') return;
@@ -80,12 +83,13 @@ async function parseTeacher(date, teacher, opts = null) {
                         subgroup = s;
                         return;
                     }
-                    // One group (whole line)
+                    if (TEACHER_REGEX.test(s)) {
+                        return;
+                    }
                     if (GROUP_REGEX.test(s) && !groups.includes(s)) {
                         groups.push(s);
                         return;
                     }
-                    // Several groups in one line
                     const matched = s.match(GROUP_REGEX_GLOBAL);
                     if (matched) {
                         matched.forEach((g) => {
@@ -94,13 +98,11 @@ async function parseTeacher(date, teacher, opts = null) {
                     }
                 });
 
-                // Extract room from link
                 const link = cellContent.find('a').text().trim();
                 if (link) {
-                    room = link;
+                    room = cleanAuditoryName(link);
                 }
 
-                // Backward compatibility: group = first or joined; also expose groups array
                 const group = groups.length > 0 ? groups.join(', ') : (subgroup || '');
 
                 result[dateKey].lessons.push({
@@ -118,21 +120,5 @@ async function parseTeacher(date, teacher, opts = null) {
 
     return result;
 }
-
-
-// // usdap
-
-// const fs = require('fs');
-// async function main() {
-//     const schedule = await parseTeacher('2025-04-28', 'Бордюжа О.Л.');
-//     if (schedule) {
-//         fs.writeFileSync('schedule.json', JSON.stringify(schedule, null, 2));
-//         console.log(schedule);
-//     }
-// }
-
-// main();
-
-
 
 module.exports = { parseTeacher };
