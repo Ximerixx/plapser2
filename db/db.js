@@ -55,6 +55,7 @@ function runMigrations(d) {
     migrateSourceAsked(d);
     migrateClassroomsToAuditories(d);
     migrateNormalizedAuditories(d);
+    migrateAuditoryAliases(d);
     try {
         d.exec(`
             CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_dedup
@@ -258,6 +259,22 @@ function ensureNormalizedAuditory(rawName) {
         VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
     `).run(parts.rawName, parts.roomNumber, parts.roomType, parts.building, parts.normalizedKey);
     return result.lastInsertRowid;
+}
+
+function migrateAuditoryAliases(d) {
+    const hasTable = d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auditory_aliases'").get();
+    if (hasTable) return;
+    d.exec(`
+        CREATE TABLE auditory_aliases (
+            source_auditory_id INTEGER PRIMARY KEY REFERENCES auditories(id),
+            canonical_auditory_id INTEGER NOT NULL REFERENCES auditories(id),
+            reason TEXT NOT NULL DEFAULT 'legacy_alias',
+            confidence TEXT NOT NULL DEFAULT 'high',
+            created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_auditory_aliases_canonical
+            ON auditory_aliases(canonical_auditory_id);
+    `);
 }
 
 function migrateNormalizedAuditories(d) {
@@ -485,6 +502,16 @@ function ensureAuditory(name) {
     return result.lastInsertRowid;
 }
 
+/** Alias auditory rows point at canonical id where schedule_slots live. */
+function resolveAuditorySlotId(auditoryId) {
+    if (auditoryId == null) return auditoryId;
+    const d = getDb();
+    const row = d.prepare(
+        'SELECT canonical_auditory_id FROM auditory_aliases WHERE source_auditory_id = ?'
+    ).get(auditoryId);
+    return row ? row.canonical_auditory_id : auditoryId;
+}
+
 function ensureSubject(name) {
     if (!name || name.trim() === '') return null;
     const d = getDb();
@@ -687,6 +714,7 @@ function getAuditorySchedule(auditoryName, date) {
     const d = getDb();
     const auditoryRow = d.prepare('SELECT id FROM auditories WHERE name = ?').get(auditoryName);
     if (!auditoryRow) return null;
+    const slotAuditoryId = resolveAuditorySlotId(auditoryRow.id);
 
     const meta = d.prepare(
         'SELECT no_lessons FROM schedule_meta WHERE entity_type = ? AND entity_key = ? AND date = ?'
@@ -713,7 +741,7 @@ function getAuditorySchedule(auditoryName, date) {
         LEFT JOIN auditories a ON s.auditory_id = a.id
         WHERE s.auditory_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
-    `).all(auditoryRow.id, date);
+    `).all(slotAuditoryId, date);
 
     if (rows.length === 0) return null;
 
@@ -908,7 +936,7 @@ function getScheduleMaxCreatedAt(entityType, entityKey, date) {
         if (r) { id = r.id; column = 'teacher_id'; }
     } else if (entityType === 'auditory') {
         const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
-        if (r) { id = r.id; column = 'auditory_id'; }
+        if (r) { id = resolveAuditorySlotId(r.id); column = 'auditory_id'; }
     }
     if (id == null || !column) return null;
     const slot = d.prepare(`SELECT MAX(created_at) AS mx FROM schedule_slots WHERE ${column} = ? AND date = ?`).get(id, date);
@@ -944,7 +972,7 @@ function bumpScheduleCreatedAt(entityType, entityKey, date) {
         if (r) { id = r.id; column = 'teacher_id'; }
     } else if (entityType === 'auditory') {
         const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
-        if (r) { id = r.id; column = 'auditory_id'; }
+        if (r) { id = resolveAuditorySlotId(r.id); column = 'auditory_id'; }
     }
     if (id == null || !column) return;
     d.prepare(`UPDATE schedule_slots SET created_at = unixepoch() WHERE ${column} = ? AND date = ?`).run(id, date);
@@ -973,7 +1001,9 @@ function saveStudentScheduleToDb(groupName, date, parsedResult, requestStatsId =
                 const teacherId = lesson.teacher ? ensureTeacher(lesson.teacher) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : null;
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
-                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
+                const auditoryId = (roomName && String(roomName).trim())
+                    ? resolveAuditorySlotId(ensureAuditory(String(roomName).trim()))
+                    : null;
                 const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 insertScheduleSlot({
                     date: dateKey,
@@ -1015,7 +1045,9 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
                 const [timeStart, timeEnd] = lesson.time.split('-').map(s => s.trim());
                 const subjectId = (lesson.subject && lesson.subject.trim()) ? ensureSubject(lesson.subject.trim()) : null;
                 const roomName = lesson.auditory || lesson.room;
-                const auditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : null;
+                const auditoryId = (roomName && String(roomName).trim())
+                    ? resolveAuditorySlotId(ensureAuditory(String(roomName).trim()))
+                    : null;
                 const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 const groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 for (const groupName of groups) {
@@ -1044,7 +1076,7 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
 function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStatsId = null) {
     if (!parsedResult || typeof parsedResult !== 'object') return;
     const d = getDb();
-    const auditoryId = ensureAuditory(auditoryName);
+    const auditoryId = resolveAuditorySlotId(ensureAuditory(auditoryName));
 
     const insert = d.transaction((dates) => {
         for (const dateKey of Object.keys(dates)) {
@@ -1063,7 +1095,8 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
                 const teacherId = (lesson.teacher && lesson.teacher.trim()) ? ensureTeacher(lesson.teacher.trim()) : null;
                 const subjectId = (lesson.name && lesson.name.trim()) ? ensureSubject(lesson.name.trim()) : (lesson.subject && lesson.subject.trim() ? ensureSubject(lesson.subject.trim()) : null);
                 const roomName = lesson.auditory || lesson.room || lesson.classroom;
-                const lessonAuditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : auditoryId;
+                let lessonAuditoryId = (roomName && String(roomName).trim()) ? ensureAuditory(String(roomName).trim()) : auditoryId;
+                lessonAuditoryId = resolveAuditorySlotId(lessonAuditoryId);
                 const normalizedAuditoryId = (roomName && String(roomName).trim()) ? ensureNormalizedAuditory(String(roomName).trim()) : null;
                 let groups = lesson.groups && Array.isArray(lesson.groups) ? lesson.groups : (lesson.group ? [lesson.group] : []);
                 groups = groups.filter(g => g && g.trim());
