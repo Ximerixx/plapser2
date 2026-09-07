@@ -9,17 +9,19 @@
   "license": "WTFPL",
   "description": "",
   "dependencies": {
+    "adm-zip": "^0.6.0",
     "axios": "^1.8.4",
     "better-sqlite3": "^12.6.2",
-    "https-proxy-agent": "^7.0.2",
-    "socks-proxy-agent": "^8.0.4",
     "cheerio": "^1.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "https-proxy-agent": "^7.0.2",
     "ical-generator": "^8.1.1",
     "ics": "^3.8.1",
     "node-cron": "^3.0.3",
+    "serve-index": "^1.9.2",
+    "socks-proxy-agent": "^8.0.4",
     "telegraf": "^4.16.3",
     "web-push": "^3.6.7"
   }

@@ -141,12 +141,26 @@ const cors = require('cors');
 app.use(cors({
     origin: 'https://durka.su', // or '*' for all origins
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-App-Key-Id',
+        'X-App-Timestamp',
+        'X-App-Signature',
+    ]
 }));
 
 // gzip клиенты без Accept-Encoding: gzip получают ответ без сжатия.
 const compression = require('compression');
-app.use(compression({ threshold: 1024 })); // сжимать только ответы > 1 KB
+const shouldCompress = compression.filter;
+app.use(compression({
+    threshold: 1024,
+    filter: (req, res) => {
+        const p = req.path || '';
+        if (p.endsWith('.apk') || p.startsWith('/api/app/upload')) return false;
+        return shouldCompress(req, res);
+    },
+}));
 
 app.get("/gen", async (req, res) => {
     const { date, group, type: rawType, tomorrow, subgroup = null, refresh } = req.query;
@@ -934,6 +948,8 @@ app.post('/api/free-auditories/rebuild-normalized', (req, res) => {
         return res.status(500).json({ error: 'Failed to rebuild normalized auditories' });
     }
 });
+
+require('./app_manager').mountAppManager(app);
 
 // Cache-Control для HTML-страниц (то же значение, что и для статики)
 app.use((req, res, next) => {

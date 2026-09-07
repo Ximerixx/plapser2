@@ -413,8 +413,78 @@ const FRESHNESS_HOURS = 2;            // Не отдавать из БД дан�
 app.use(cors({
     origin: 'https://your-domain.com',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-App-Key-Id',
+        'X-App-Timestamp',
+        'X-App-Signature',
+    ]
 }));
+```
+
+---
+
+## Android APK (app_manager)
+
+Модуль [`app_manager/`](app_manager/) — загрузка и раздача Android-сборок. Конфиг по образцу tgbot: скопируйте [`app_manager/config.example.json`](app_manager/config.example.json) в `app_manager/config.json`.
+
+### Эндпоинты
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/app/current` | Текущий билд (`v42`, text/plain) |
+| GET | `/api/app/upload/status` | Статус пайплайна upload (text/plain) |
+| GET | `/api/app/android/` | Список файлов релизов |
+| GET | `/api/app/android/latest.apk` | Последний APK |
+| POST | `/api/app/upload/android` | Загрузка ZIP (Ed25519) |
+
+### Формат ZIP
+
+В корне архива (без вложенных папок):
+
+- `app-release.apk`
+- `changelog.md`
+- `v{N}` — пустой маркер версии (имя файла = билд)
+
+### Аутентификация upload
+
+Обязательные заголовки:
+
+- `X-App-Key-Id` — ID ключа (например `1`)
+- `X-App-Timestamp` — Unix seconds (UTC)
+- `X-App-Signature` — Ed25519 подпись canonical string:
+
+```
+{keyId}\n{timestamp}\n{sha256hex}
+```
+
+где `sha256hex` — SHA-256 загруженного ZIP-файла.
+
+Публичный ключ: `app_manager/keys/upload_public_1.pem`. Приватный — только на CI.
+
+### Скрипты
+
+```bash
+# Сгенерировать ключи (приватный не коммитить)
+./app_manager/scripts/generate-keys.sh 1 ./app_manager/keys
+
+# Собрать ZIP после подписи APK
+./app_manager/scripts/pack-release.sh 42 release.zip
+
+# Загрузить на сервер
+ORIGIN=https://your-origin \
+PRIVATE_KEY_PATH=./upload_private_1.pem \
+ZIP_PATH=release.zip \
+node app_manager/scripts/upload-release.js
+```
+
+### nginx
+
+Для upload добавьте лимит размера тела:
+
+```nginx
+client_max_body_size 150m;
 ```
 
 ---

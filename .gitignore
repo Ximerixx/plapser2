@@ -135,6 +135,10 @@ db/*.db-shm
 # tgbot config (secrets); use tgbot/config.example.json as template
 tgbot/config.json
 
+# app_manager runtime data and secrets
+app_manager/data
+app_manager/config.json
+
 # Project config (secrets); use config/plapser.example.json as template
 config/plapser.json
 
