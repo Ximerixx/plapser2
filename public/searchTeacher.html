@@ -634,7 +634,14 @@
             }
 
             // Load teachers on page load
-            fetchTeachers();
+            fetchTeachers().then(() => {
+                const params = new URLSearchParams(window.location.search);
+                const teacherParam = params.get('teacher');
+                if (teacherParam) {
+                    teacherInput.value = teacherParam;
+                    searchTeacher(false);
+                }
+            });
 
             // Offline/Online detection
             const offlineIndicator = document.getElementById('offline-indicator');
@@ -663,7 +670,8 @@
                                 window.location.href,
                                 '/gui',
                                 '/searchStudent',
-                                '/searchTeacher'
+                                '/searchTeacher',
+                                '/groupTeachersSubjects'
                             ];
                             
                             pagesToCache.forEach(pageUrl => {

@@ -976,7 +976,7 @@ require('./app_manager').mountAppManager(app);
 
 // Cache-Control для HTML-страниц (то же значение, что и для статики)
 app.use((req, res, next) => {
-    if (req.method === 'GET' && ['/gui', '/searchStudent', '/searchTeacher', '/searchAuditory'].includes(req.path)) {
+    if (req.method === 'GET' && ['/gui', '/searchStudent', '/searchTeacher', '/searchAuditory', '/groupTeachersSubjects'].includes(req.path)) {
         res.setHeader('Cache-Control', `public, max-age=${STATIC_CACHE_MAX_AGE_SECONDS}`);
     }
     next();
@@ -1062,6 +1062,10 @@ app.get('/searchAuditory', (req, res) => {
 // Роут для поиска расписания группы
 app.get('/searchStudent', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'searchStudent.html'));
+});
+
+app.get('/groupTeachersSubjects', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'groupTeachersSubjects.html'));
 });
 
 app.listen(port, () => {

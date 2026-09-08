@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7131c0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Plapser">
+    <title>Преподаватели и предметы группы</title>
+    <link rel="stylesheet" href="stylesheet.css">
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        .results-container {
+            margin-top: 20px;
+            padding: 20px;
+            background: var(--border-light);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .group-info {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .group-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .group-meta {
+            margin-top: 8px;
+            font-size: 14px;
+            color: var(--text-light);
+        }
+
+        .year-block {
+            margin-top: 20px;
+        }
+
+        .year-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .item-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 3px var(--shadow);
+        }
+
+        .item-subject {
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .teacher-badge {
+            display: inline-block;
+            background: var(--text-light);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        .teacher-badge:hover,
+        .teacher-badge:focus {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .meta-note {
+            margin-top: 12px;
+            padding: 10px 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+
+        .loading,
+        .no-data {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-light);
+        }
+
+        .error {
+            background: var(--error);
+            color: white;
+            padding: 15px;
+            border-radius: 6px;
+        }
+
+        .recent-groups {
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+
+        .recent-groups-title {
+            font-size: 14px;
+            color: var(--text-light);
+            margin-bottom: 10px;
+        }
+
+        .recent-groups-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .recent-group-btn {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .recent-group-btn:hover {
+            background: var(--primary);
+            color: var(--white);
+            border-color: var(--primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="theme-toggle">
+        <button id="theme-toggle" class="theme-toggle-button" title="Переключить тему">🌙</button>
+    </div>
+
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <a href="/gui" class="button" style="display: inline-block; text-decoration: none; background: var(--text-light);">
+                ← Назад к генератору
+            </a>
+        </div>
+
+        <h1>Преподаватели и предметы</h1>
+        <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
+            Для должников: кто вёл предметы у группы по учебным годам (из кэша расписания)
+        </p>
+
+        <div class="input-group">
+            <input type="text" id="group" class="input-field" placeholder=" ">
+            <button id="clear-group" class="button secondary small-button">×</button>
+            <label class="input-label">Группа</label>
+            <ul id="group-list" class="dropdown"></ul>
+        </div>
+
+        <button id="search-btn" class="button">Показать преподавателей</button>
+
+        <div id="recent-groups" class="recent-groups" style="display: none;">
+            <div class="recent-groups-title">Последние поиски:</div>
+            <div id="recent-groups-grid" class="recent-groups-grid"></div>
+        </div>
+
+        <div id="results" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const groupInput = document.getElementById('group');
+            const groupList = document.getElementById('group-list');
+            const clearButton = document.getElementById('clear-group');
+            const searchButton = document.getElementById('search-btn');
+            const resultsDiv = document.getElementById('results');
+            const recentGroupsDiv = document.getElementById('recent-groups');
+            const recentGroupsGrid = document.getElementById('recent-groups-grid');
+
+            let allGroups = [];
+
+            function teacherSearchUrl(teacher) {
+                return `/searchTeacher?teacher=${encodeURIComponent(teacher)}`;
+            }
+
+            function escapeHtml(str) {
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+
+            function setCookie(name, value, days = 365) {
+                const date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                document.cookie = `${name}=${encodeURIComponent(value)};expires=${date.toUTCString()};path=/`;
+            }
+
+            function saveRecentGroup(group) {
+                if (!group || !group.trim()) return;
+                let recent = [];
+                const raw = getCookie('recent_groups_adv');
+                if (raw) {
+                    try { recent = JSON.parse(decodeURIComponent(raw)); } catch (_) { recent = []; }
+                }
+                recent = recent.filter(g => g !== group);
+                recent.unshift(group);
+                recent = recent.slice(0, 12);
+                setCookie('recent_groups_adv', JSON.stringify(recent));
+                displayRecentGroups();
+            }
+
+            function getRecentGroups() {
+                const raw = getCookie('recent_groups_adv');
+                if (!raw) return [];
+                try { return JSON.parse(decodeURIComponent(raw)); } catch (_) { return []; }
+            }
+
+            function displayRecentGroups() {
+                const recent = getRecentGroups();
+                if (!recent.length) {
+                    recentGroupsDiv.style.display = 'none';
+                    return;
+                }
+                recentGroupsDiv.style.display = 'block';
+                recentGroupsGrid.innerHTML = '';
+                recent.forEach(group => {
+                    const btn = document.createElement('button');
+                    btn.className = 'recent-group-btn';
+                    btn.textContent = group;
+                    btn.title = group;
+                    btn.addEventListener('click', () => {
+                        groupInput.value = group;
+                        groupList.innerHTML = '';
+                        searchGroup();
+                    });
+                    recentGroupsGrid.appendChild(btn);
+                });
+            }
+
+            clearButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                groupInput.value = '';
+                groupList.innerHTML = '';
+                resultsDiv.style.display = 'none';
+            });
+
+            groupInput.addEventListener('input', updateDropdown);
+            searchButton.addEventListener('click', searchGroup);
+
+            async function fetchGroups() {
+                try {
+                    const response = await fetch('/api/groups');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    allGroups = await response.json();
+                    updateDropdown();
+                } catch (error) {
+                    console.error('Ошибка загрузки групп:', error);
+                }
+            }
+
+            function updateDropdown() {
+                const value = groupInput.value.toLowerCase();
+                groupList.innerHTML = '';
+                if (!value) return;
+                allGroups
+                    .filter(g => g.toLowerCase().includes(value))
+                    .slice(0, 10)
+                    .forEach(group => {
+                        const li = document.createElement('li');
+                        li.textContent = group;
+                        li.classList.add('dropdown-item');
+                        li.addEventListener('click', () => {
+                            groupInput.value = group;
+                            groupList.innerHTML = '';
+                        });
+                        groupList.appendChild(li);
+                    });
+            }
+
+            async function searchGroup() {
+                const group = groupInput.value.trim();
+                if (!group) {
+                    alert('Укажите группу');
+                    return;
+                }
+
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div class="loading">Загрузка...</div>';
+
+                try {
+                    const url = `/api/advSearch/groupd_teacherandsubjects?group=${encodeURIComponent(group)}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Ошибка запроса');
+                    }
+
+                    displayResults(data);
+                    saveRecentGroup(group);
+                } catch (error) {
+                    resultsDiv.innerHTML = `<div class="error"><strong>Ошибка:</strong> ${escapeHtml(error.message)}</div>`;
+                }
+            }
+
+            function displayResults(data) {
+                let html = '<div class="results-container">';
+                html += `
+                    <div class="group-info">
+                        <div class="group-name">${escapeHtml(data.group)}</div>
+                `;
+
+                if (data.parsed) {
+                    html += `
+                        <div class="group-meta">
+                            ${escapeHtml(data.parsed.specialty)} · поступление ${data.parsed.admissionYear}
+                            · группа ${data.parsed.groupIndex} · ${escapeHtml(data.parsed.form)}
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+
+                const years = data.meta?.academicYearsFound || Object.keys(data.academicYears || {});
+                if (!years.length) {
+                    html += '<div class="no-data">Нет данных по преподавателям и предметам</div>';
+                } else {
+                    years.forEach(year => {
+                        const block = data.academicYears[year];
+                        const items = block?.items || [];
+                        html += `<div class="year-block"><div class="year-title">Учебный год ${escapeHtml(year)}</div>`;
+                        if (!items.length) {
+                            html += '<div class="no-data">Нет записей</div>';
+                        } else {
+                            items.forEach(item => {
+                                const teacher = item.teacher || '';
+                                const subject = item.subject || '';
+                                html += `
+                                    <div class="item-card">
+                                        <div class="item-subject">${escapeHtml(subject)}</div>
+                                        <a class="teacher-badge" href="${teacherSearchUrl(teacher)}" title="Расписание преподавателя">
+                                            ${escapeHtml(teacher)}
+                                        </a>
+                                    </div>
+                                `;
+                            });
+                        }
+                        html += '</div>';
+                    });
+                }
+
+                if (data.meta) {
+                    html += `
+                        <div class="meta-note">
+                            Данные: ${escapeHtml(data.meta.dataFrom || '?')} — ${escapeHtml(data.meta.dataTo || '?')}
+                            · слотов: ${data.meta.slotsWithTeacherSubject ?? '—'}.
+                            ${escapeHtml(data.meta.note || '')}
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+            }
+
+            displayRecentGroups();
+            fetchGroups();
+
+            const params = new URLSearchParams(window.location.search);
+            const groupParam = params.get('group');
+            if (groupParam) {
+                groupInput.value = groupParam;
+                searchGroup();
+            }
+
+            const themeToggle = document.getElementById('theme-toggle');
+            const body = document.body;
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            body.setAttribute('data-theme', savedTheme);
+            themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            themeToggle.addEventListener('click', () => {
+                const newTheme = body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                body.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            });
+        });
+    </script>
+</body>
+
+</html>
