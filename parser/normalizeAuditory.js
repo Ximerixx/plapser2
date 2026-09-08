@@ -27,7 +27,22 @@ function normalizeRoomType(rawType) {
     if (t === 'л' || t.includes('лек')) return 'лек';
     if (t.includes('дис')) return 'дис';
     if (t.includes('мастер')) return 'мастер';
+    if (t.includes('англ')) return 'англ';
+    if (t.includes('матем')) return 'матем';
     return t;
+}
+
+/** «11К ЛЕК» → building=11К, roomType=лек; «7К» → только корпус. */
+function parseBuildingPart(right) {
+    if (!right) return { building: null, roomType: null };
+    const tokens = String(right).trim().toUpperCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return { building: null, roomType: null };
+    const building = tokens[0];
+    const typeHint = tokens.length > 1 ? tokens.slice(1).join(' ') : null;
+    return {
+        building,
+        roomType: typeHint ? normalizeRoomType(typeHint) : null
+    };
 }
 
 function parseAuditoryParts(rawName) {
@@ -58,9 +73,10 @@ function parseAuditoryParts(rawName) {
     }
 
     let roomType = normalizeRoomType(rest);
+    const { building, roomType: buildingRoomType } = parseBuildingPart(right);
+    if (!roomType && buildingRoomType) roomType = buildingRoomType;
     if (!roomType && hasAngl) roomType = 'англ';
 
-    const building = right ? right.toUpperCase() : null;
     const normalizedKey = `${roomNumber || ''}|${roomType || ''}|${building || ''}`;
     return { rawName: raw, roomNumber: roomNumber || null, roomType, building, normalizedKey };
 }
