@@ -10,6 +10,7 @@ const { parseTeacher } = require('./parser/parseTeacher');
 const { parseAuditory } = require('./parser/parseAuditory');
 const { kisGet } = require('./parser/kisGet');
 const { formatAuditoryName, parseAuditoryParts } = require('./parser/normalizeAuditory');
+const { parseGroupName, academicYearLabel, normalizeTeacherName } = require('./parser/parseGroupName');
 
 let dbLayer = null;
 try {
@@ -613,6 +614,68 @@ function getNormalizedRoomTypes(building = null) {
     return dbLayer.getNormalizedRoomTypes(building || null);
 }
 
+function getGroupTeachersAndSubjects(groupName) {
+    const group = String(groupName ?? '').trim();
+    if (!group) return { error: 'bad_request', message: 'group is required' };
+    if (!dbLayer || !dbLayer.getGroupTeachersAndSubjectsRows) {
+        return { error: 'unavailable', message: 'Database layer not available' };
+    }
+
+    const rows = dbLayer.getGroupTeachersAndSubjectsRows(group);
+    if (rows === null) return { error: 'not_found', message: 'Group not found in database' };
+    if (!rows.length) return { error: 'not_found', message: 'No cached lessons with teacher and subject for this group' };
+
+    const parsed = parseGroupName(group);
+    const buckets = new Map();
+    let dataFrom = rows[0].date;
+    let dataTo = rows[0].date;
+
+    for (const row of rows) {
+        if (row.date < dataFrom) dataFrom = row.date;
+        if (row.date > dataTo) dataTo = row.date;
+        const yearLabel = academicYearLabel(row.date);
+        if (!yearLabel) continue;
+        if (!buckets.has(yearLabel)) buckets.set(yearLabel, new Map());
+        const teacher = normalizeTeacherName(row.teacher_name);
+        const subject = String(row.subject_name ?? '').trim();
+        if (!teacher || !subject) continue;
+        const key = `${teacher}\0${subject}`;
+        buckets.get(yearLabel).set(key, { teacher, subject });
+    }
+
+    const academicYears = {};
+    const academicYearsFound = [...buckets.keys()].sort();
+    for (const label of academicYearsFound) {
+        const items = [...buckets.get(label).values()].sort((a, b) => {
+            const sub = a.subject.localeCompare(b.subject, 'ru');
+            return sub !== 0 ? sub : a.teacher.localeCompare(b.teacher, 'ru');
+        });
+        academicYears[label] = { items };
+    }
+
+    if (!academicYearsFound.length) {
+        return { error: 'not_found', message: 'No cached lessons with teacher and subject for this group' };
+    }
+
+    return {
+        group,
+        parsed: parsed ? {
+            specialty: parsed.specialty,
+            admissionYear: parsed.admissionYear,
+            groupIndex: parsed.groupIndex,
+            form: parsed.form
+        } : null,
+        academicYears,
+        meta: {
+            academicYearsFound,
+            dataFrom,
+            dataTo,
+            slotsWithTeacherSubject: rows.length,
+            note: 'Только закэшированные даты; для прошлых учебных лет нужен warmup'
+        }
+    };
+}
+
 module.exports = {
     getScheduleGroup,
     getScheduleTeacher,
@@ -633,5 +696,6 @@ module.exports = {
     getNormalizedBuildings,
     getNormalizedAuditories,
     getNormalizedRoomTypes,
+    getGroupTeachersAndSubjects,
     warmupAllSchedulesForDate
 };

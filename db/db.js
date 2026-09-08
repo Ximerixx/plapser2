@@ -919,6 +919,24 @@ function getFreeSlotsByAuditory(date, auditoryQuery, building = null) {
     };
 }
 
+/** Сырые слоты группы с преподавателем и предметом (для advSearch). null — группы нет в БД. */
+function getGroupTeachersAndSubjectsRows(groupName) {
+    const d = getDb();
+    const groupRow = d.prepare('SELECT id FROM groups WHERE name = ?').get(groupName);
+    if (!groupRow) return null;
+    return d.prepare(`
+        SELECT s.date, t.name AS teacher_name, sub.name AS subject_name
+        FROM schedule_slots s
+        JOIN groups g ON g.id = s.group_id
+        LEFT JOIN teachers t ON t.id = s.teacher_id
+        LEFT JOIN subjects sub ON sub.id = s.subject_id
+        WHERE g.name = ?
+          AND s.teacher_id IS NOT NULL
+          AND s.subject_id IS NOT NULL
+        ORDER BY s.date, t.name, sub.name
+    `).all(groupName);
+}
+
 function formatDateDisplay(isoDate) {
     const [y, m, d] = isoDate.split('-');
     const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -1409,6 +1427,7 @@ module.exports = {
     getDynamicSlotsByDate,
     getFreeAuditoriesBySlot,
     getFreeSlotsByAuditory,
+    getGroupTeachersAndSubjectsRows,
     getNormalizedBuildings,
     getNormalizedAuditories,
     getNormalizedRoomTypes,
