@@ -7,9 +7,7 @@ const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-function cleanAuditoryName(value) {
-    return String(value ?? '').replace(/\s+/g, ' ').trim();
-}
+const { formatAuditoryName } = require('./normalizeAuditory');
 
 async function parseAuditory(date, auditory, opts = null) {
     if (!auditory) {
@@ -20,7 +18,7 @@ async function parseAuditory(date, auditory, opts = null) {
         throw new Error('Не удалось определить дату');
     }
 
-    const queryAuditory = cleanAuditoryName(auditory);
+    const queryAuditory = formatAuditoryName(auditory);
     const url = `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(queryAuditory)}&date=${date}`;
     const response = await kisGet(url, opts);
     const $ = cheerio.load(response.data);
@@ -102,7 +100,7 @@ async function parseAuditory(date, auditory, opts = null) {
 
                 const link = cellContent.find('a').text().trim();
                 if (link) {
-                    room = cleanAuditoryName(link);
+                    room = formatAuditoryName(link);
                 }
 
                 const fullNormalized = normalizeSubjectPrefix(subjectLine);

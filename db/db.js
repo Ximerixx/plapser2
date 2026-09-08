@@ -3,6 +3,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { normalizeRoomType, parseAuditoryParts } = require('../parser/normalizeAuditory');
 
 const DB_PATH = path.join(__dirname, 'plapser.db');
 let db = null;
@@ -197,52 +198,17 @@ function migrateClassroomsToAuditories(d) {
     d.pragma('foreign_keys = ON');
 }
 
-function normalizeRoomType(rawType) {
-    if (!rawType) return null;
-    const t = String(rawType).toLowerCase().trim();
-    if (!t) return null;
-    if (t.includes('комп') || t.includes('информ')) return 'комп';
-    if (t.includes('лаб')) return 'лаб';
-    if (t.includes('пр')) return 'пр';
-    if (t === 'л' || t.includes('лек')) return 'лек';
-    if (t.includes('дис')) return 'дис';
-    if (t.includes('мастер')) return 'мастер';
-    return t;
-}
-
-function parseAuditoryParts(rawName) {
-    const raw = String(rawName ?? '').replace(/\s+/g, ' ').trim();
-    if (!raw) {
-        return { rawName: '', roomNumber: null, roomType: null, building: null, normalizedKey: '' };
+function getCanonicalAuditoryName(rawName) {
+    const p = parseAuditoryParts(rawName);
+    if (!p.rawName) return '';
+    const d = getDb();
+    let row = d.prepare('SELECT raw_name FROM normalized_auditories WHERE raw_name = ?').get(p.rawName);
+    if (row) return row.raw_name;
+    if (p.normalizedKey) {
+        row = d.prepare('SELECT raw_name FROM normalized_auditories WHERE normalized_key = ?').get(p.normalizedKey);
+        if (row) return row.raw_name;
     }
-    const slashIdx = raw.indexOf('/');
-    let left = slashIdx >= 0 ? raw.slice(0, slashIdx).trim() : raw;
-    const right = slashIdx >= 0 ? raw.slice(slashIdx + 1).trim() : '';
-
-    // Корпусной префикс перед номером (не часть номера кабинета).
-    left = left.replace(/^[АБВГД]\s*/iu, '').trim();
-    const hasAngl = /англ/iu.test(left);
-
-    // Номер: цифры + опциональная буква подкабинета сразу после (305а ≠ 305б ≠ 305).
-    const digitMatch = left.match(/\d+/u);
-    let roomNumber = null;
-    let rest = left;
-    if (digitMatch) {
-        const idx = digitMatch.index;
-        const digits = digitMatch[0];
-        let consumed = digits.length;
-        const suffixMatch = left.slice(idx + consumed).match(/^([абвгд])/iu);
-        if (suffixMatch) consumed += 1;
-        roomNumber = digits + (suffixMatch ? suffixMatch[1].toLowerCase() : '');
-        rest = (left.slice(0, idx) + ' ' + left.slice(idx + consumed)).trim();
-    }
-
-    let roomType = normalizeRoomType(rest);
-    if (!roomType && hasAngl) roomType = 'англ';
-
-    const building = right ? right.toUpperCase() : null;
-    const normalizedKey = `${roomNumber || ''}|${roomType || ''}|${building || ''}`;
-    return { rawName: raw, roomNumber: roomNumber || null, roomType, building, normalizedKey };
+    return p.rawName;
 }
 
 function ensureNormalizedAuditory(rawName, parts = null) {
@@ -265,7 +231,8 @@ function ensureNormalizedAuditory(rawName, parts = null) {
 
 /** Один проход parseAuditoryParts → auditories + normalized_auditories для слота. */
 function resolveAuditoryIds(roomName) {
-    const parts = parseAuditoryParts(roomName);
+    const canonical = getCanonicalAuditoryName(roomName);
+    const parts = parseAuditoryParts(canonical);
     if (!parts.rawName) return { auditoryId: null, normalizedAuditoryId: null };
     return {
         auditoryId: ensureAuditory(parts.rawName, parts),
@@ -593,12 +560,14 @@ function getStudentSchedule(groupName, date, subgroup = null) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.lesson_type, s.subgroup,
-               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, a.name AS auditory_name
+               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name,
+               COALESCE(na.raw_name, a.name) AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN teachers t ON s.teacher_id = t.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
         LEFT JOIN auditories a ON s.auditory_id = a.id
+        LEFT JOIN normalized_auditories na ON na.id = s.normalized_auditory_id
         WHERE s.group_id = ? AND s.date = ?
         ORDER BY s.time_start
     `).all(groupRow.id, date);
@@ -653,11 +622,13 @@ function getTeacherSchedule(teacherName, date) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.subgroup,
-               g.name AS group_name, sub.name AS subject_name, a.name AS auditory_name
+               g.name AS group_name, sub.name AS subject_name,
+               COALESCE(na.raw_name, a.name) AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
         LEFT JOIN auditories a ON s.auditory_id = a.id
+        LEFT JOIN normalized_auditories na ON na.id = s.normalized_auditory_id
         WHERE s.teacher_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
     `).all(teacherRow.id, date);
@@ -708,7 +679,8 @@ function getStudentScheduleWeek(groupName, baseDate, subgroup = null) {
 
 function resolveNormalizedAuditoryIdForRead(auditoryName) {
     const d = getDb();
-    const parts = parseAuditoryParts(auditoryName);
+    const canonical = getCanonicalAuditoryName(auditoryName);
+    const parts = parseAuditoryParts(canonical);
     if (!parts.rawName) return null;
 
     let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(parts.rawName);
@@ -724,7 +696,7 @@ function resolveNormalizedAuditoryIdForRead(auditoryName) {
 
 function getAuditorySchedule(auditoryName, date) {
     const d = getDb();
-
+    const canonical = getCanonicalAuditoryName(auditoryName);
     // Старый путь (быстрый откат): только точное совпадение auditories.name
     // const auditoryRow = d.prepare('SELECT id FROM auditories WHERE name = ?').get(auditoryName);
     // if (!auditoryRow) return null;
@@ -735,7 +707,7 @@ function getAuditorySchedule(auditoryName, date) {
     // WHERE s.auditory_id = ? AND s.date = ?
     // `).all(auditoryRow.id, date);
 
-    const normalizedId = resolveNormalizedAuditoryIdForRead(auditoryName);
+    const normalizedId = resolveNormalizedAuditoryIdForRead(canonical);
     if (!normalizedId) return null;
 
     const meta = d.prepare(`
@@ -746,7 +718,7 @@ function getAuditorySchedule(auditoryName, date) {
           ))
         ORDER BY no_lessons DESC
         LIMIT 1
-    `).get(date, auditoryName, normalizedId);
+    `).get(date, canonical, normalizedId);
     if (meta && meta.no_lessons === 1) {
         const dayOfWeek = getDayOfWeek(date);
         const dateDisplay = formatDateDisplay(date);
@@ -761,12 +733,14 @@ function getAuditorySchedule(auditoryName, date) {
 
     const rows = d.prepare(`
         SELECT s.date, s.time_start, s.time_end, s.subgroup,
-               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name, a.name AS auditory_name
+               g.name AS group_name, t.name AS teacher_name, sub.name AS subject_name,
+               COALESCE(na.raw_name, a.name) AS auditory_name
         FROM schedule_slots s
         JOIN groups g ON s.group_id = g.id
         LEFT JOIN teachers t ON s.teacher_id = t.id
         LEFT JOIN subjects sub ON s.subject_id = sub.id
         LEFT JOIN auditories a ON s.auditory_id = a.id
+        LEFT JOIN normalized_auditories na ON na.id = s.normalized_auditory_id
         WHERE s.normalized_auditory_id = ? AND s.date = ?
         ORDER BY s.time_start, g.name
     `).all(normalizedId, date);
@@ -963,8 +937,24 @@ function getScheduleMaxCreatedAt(entityType, entityKey, date) {
         const r = d.prepare('SELECT id FROM teachers WHERE name = ?').get(entityKey);
         if (r) { id = r.id; column = 'teacher_id'; }
     } else if (entityType === 'auditory') {
-        const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
-        if (r) { id = r.id; column = 'auditory_id'; }
+        const normId = resolveNormalizedAuditoryIdForRead(entityKey);
+        if (normId) {
+            const slot = d.prepare('SELECT MAX(created_at) AS mx FROM schedule_slots WHERE normalized_auditory_id = ? AND date = ?').get(normId, date);
+            if (slot && slot.mx != null) return slot.mx;
+            const meta = d.prepare(`
+                SELECT created_at FROM schedule_meta
+                WHERE entity_type = 'auditory' AND date = ?
+                  AND (entity_key = ? OR entity_key IN (
+                      SELECT raw_name FROM normalized_auditories WHERE id = ?
+                  ))
+                ORDER BY created_at DESC
+                LIMIT 1
+            `).get(date, entityKey, normId);
+            return meta ? meta.created_at : null;
+        }
+        // Старый путь (быстрый откат):
+        // const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
+        // if (r) { id = r.id; column = 'auditory_id'; }
     }
     if (id == null || !column) return null;
     const slot = d.prepare(`SELECT MAX(created_at) AS mx FROM schedule_slots WHERE ${column} = ? AND date = ?`).get(id, date);
@@ -999,8 +989,22 @@ function bumpScheduleCreatedAt(entityType, entityKey, date) {
         const r = d.prepare('SELECT id FROM teachers WHERE name = ?').get(entityKey);
         if (r) { id = r.id; column = 'teacher_id'; }
     } else if (entityType === 'auditory') {
-        const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
-        if (r) { id = r.id; column = 'auditory_id'; }
+        const canonical = getCanonicalAuditoryName(entityKey);
+        const normId = resolveNormalizedAuditoryIdForRead(canonical);
+        if (normId) {
+            d.prepare('UPDATE schedule_slots SET created_at = unixepoch() WHERE normalized_auditory_id = ? AND date = ?').run(normId, date);
+            d.prepare(`
+                UPDATE schedule_meta SET created_at = unixepoch()
+                WHERE entity_type = 'auditory' AND date = ?
+                  AND (entity_key = ? OR entity_key IN (
+                      SELECT raw_name FROM normalized_auditories WHERE id = ?
+                  ))
+            `).run(date, canonical, normId);
+            return;
+        }
+        // Старый путь (быстрый откат):
+        // const r = d.prepare('SELECT id FROM auditories WHERE name = ?').get(entityKey);
+        // if (r) { id = r.id; column = 'auditory_id'; }
     }
     if (id == null || !column) return;
     d.prepare(`UPDATE schedule_slots SET created_at = unixepoch() WHERE ${column} = ? AND date = ?`).run(id, date);
@@ -1098,7 +1102,8 @@ function saveTeacherScheduleToDb(teacherName, date, parsedResult, requestStatsId
 function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStatsId = null) {
     if (!parsedResult || typeof parsedResult !== 'object') return;
     const d = getDb();
-    const { auditoryId, normalizedAuditoryId: defaultNormalizedAuditoryId } = resolveAuditoryIds(auditoryName);
+    const canonicalAuditoryName = getCanonicalAuditoryName(auditoryName);
+    const { auditoryId, normalizedAuditoryId: defaultNormalizedAuditoryId } = resolveAuditoryIds(canonicalAuditoryName);
 
     const insert = d.transaction((dates) => {
         for (const dateKey of Object.keys(dates)) {
@@ -1106,10 +1111,10 @@ function saveAuditoryScheduleToDb(auditoryName, date, parsedResult, requestStats
             const lessons = day.lessons || [];
             const hasNoLessons = lessons.length === 1 && lessons[0].status === 'Нет пар';
             if (hasNoLessons) {
-                insertScheduleMeta('auditory', auditoryName, dateKey, true, requestStatsId);
+                insertScheduleMeta('auditory', canonicalAuditoryName, dateKey, true, requestStatsId);
                 continue;
             }
-            insertScheduleMeta('auditory', auditoryName, dateKey, false, requestStatsId);
+            insertScheduleMeta('auditory', canonicalAuditoryName, dateKey, false, requestStatsId);
             for (const lesson of lessons) {
                 if (lesson.status === 'Нет пар') continue;
                 if (!lesson.time || !lesson.time.includes('-')) continue;
@@ -1390,6 +1395,7 @@ module.exports = {
     ensureTeacher,
     ensureAuditory,
     ensureNormalizedAuditory,
+    getCanonicalAuditoryName,
     ensureSubject,
     insertScheduleSlot,
     insertScheduleMeta,
