@@ -6,9 +6,7 @@ const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-function cleanAuditoryName(value) {
-    return String(value ?? '').replace(/\s+/g, ' ').trim();
-}
+const { formatAuditoryName } = require('./normalizeAuditory');
 
 async function parseTeacher(date, teacher, opts = null) {
     if (!teacher) {
@@ -100,7 +98,7 @@ async function parseTeacher(date, teacher, opts = null) {
 
                 const link = cellContent.find('a').text().trim();
                 if (link) {
-                    room = cleanAuditoryName(link);
+                    room = formatAuditoryName(link);
                 }
 
                 const group = groups.length > 0 ? groups.join(', ') : (subgroup || '');
