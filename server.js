@@ -818,6 +818,29 @@ app.get('/api/teachers', async (req, res) => {
     }
 });
 
+app.get('/api/advSearch/groupd_teacherandsubjects', (req, res) => {
+    const group = req.query.group;
+    if (!group || !String(group).trim()) {
+        return res.status(400).json({ error: 'group is required' });
+    }
+    try {
+        const result = jsapi.getGroupTeachersAndSubjects(group);
+        if (result.error === 'bad_request') {
+            return res.status(400).json({ error: result.message });
+        }
+        if (result.error === 'not_found') {
+            return res.status(404).json({ error: result.message, group: String(group).trim() });
+        }
+        if (result.error === 'unavailable') {
+            return res.status(500).json({ error: result.message });
+        }
+        return res.json(result);
+    } catch (e) {
+        console.error('advSearch/groupd_teacherandsubjects failed:', e);
+        return res.status(500).json({ error: 'Failed to load group teachers and subjects' });
+    }
+});
+
 app.get('/api/auditories', async (req, res) => {
     try {
         const data = await jsapi.getAuditoriesList();
