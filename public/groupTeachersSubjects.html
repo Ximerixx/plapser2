@@ -151,6 +151,14 @@
             color: var(--white);
             border-color: var(--primary);
         }
+
+        .year-select-wrap {
+            margin-top: 20px;
+        }
+
+        .year-select-wrap select {
+            width: 100%;
+        }
     </style>
 </head>
 
@@ -178,6 +186,13 @@
             <ul id="group-list" class="dropdown"></ul>
         </div>
 
+        <div class="input-group year-select-wrap">
+            <select id="academic-year" class="input-field">
+                <option value="" selected>Все учебные годы</option>
+            </select>
+            <label class="input-label">Учебный год</label>
+        </div>
+
         <button id="search-btn" class="button">Показать преподавателей</button>
 
         <div id="recent-groups" class="recent-groups" style="display: none;">
@@ -197,8 +212,61 @@
             const resultsDiv = document.getElementById('results');
             const recentGroupsDiv = document.getElementById('recent-groups');
             const recentGroupsGrid = document.getElementById('recent-groups-grid');
+            const academicYearSelect = document.getElementById('academic-year');
 
             let allGroups = [];
+            let lastSearchData = null;
+
+            function currentAcademicYearStart() {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = now.getMonth() + 1;
+                return month >= 9 ? year : year - 1;
+            }
+
+            function academicYearLabelFromStart(start) {
+                return `${start}-${start + 1}`;
+            }
+
+            function parseGroupAdmissionYear(group) {
+                const m = String(group ?? '').trim().match(/^([А-ЯЁ]{2,3}\d)-(\d{2})(\d)-/iu);
+                return m ? 2000 + Number(m[2]) : null;
+            }
+
+            function updateYearOptions(group, preferredYear) {
+                const admissionYear = parseGroupAdmissionYear(group);
+                const currentStart = currentAcademicYearStart();
+                const maxStart = currentStart + 1;
+                const minStart = admissionYear != null
+                    ? admissionYear
+                    : currentStart - 5;
+
+                const years = [];
+                for (let start = maxStart; start >= minStart; start--) {
+                    years.push(academicYearLabelFromStart(start));
+                }
+
+                const prev = preferredYear || academicYearSelect.value;
+                academicYearSelect.innerHTML = '<option value="">Все учебные годы</option>';
+                years.forEach(year => {
+                    const opt = document.createElement('option');
+                    opt.value = year;
+                    opt.textContent = year;
+                    academicYearSelect.appendChild(opt);
+                });
+
+                if (prev && years.includes(prev)) {
+                    academicYearSelect.value = prev;
+                } else if (years.includes(academicYearLabelFromStart(currentStart))) {
+                    academicYearSelect.value = academicYearLabelFromStart(currentStart);
+                } else {
+                    academicYearSelect.value = '';
+                }
+            }
+
+            function getSelectedAcademicYear() {
+                return academicYearSelect.value.trim();
+            }
 
             function teacherSearchUrl(teacher) {
                 return `/searchTeacher?teacher=${encodeURIComponent(teacher)}`;
@@ -261,6 +329,7 @@
                     btn.addEventListener('click', () => {
                         groupInput.value = group;
                         groupList.innerHTML = '';
+                        updateYearOptions(group);
                         searchGroup();
                     });
                     recentGroupsGrid.appendChild(btn);
@@ -272,9 +341,17 @@
                 groupInput.value = '';
                 groupList.innerHTML = '';
                 resultsDiv.style.display = 'none';
+                lastSearchData = null;
+                updateYearOptions('');
             });
 
-            groupInput.addEventListener('input', updateDropdown);
+            groupInput.addEventListener('input', () => {
+                updateDropdown();
+                updateYearOptions(groupInput.value.trim());
+            });
+            academicYearSelect.addEventListener('change', () => {
+                if (lastSearchData) displayResults(lastSearchData);
+            });
             searchButton.addEventListener('click', searchGroup);
 
             async function fetchGroups() {
@@ -302,6 +379,7 @@
                         li.addEventListener('click', () => {
                             groupInput.value = group;
                             groupList.innerHTML = '';
+                            updateYearOptions(group);
                         });
                         groupList.appendChild(li);
                     });
@@ -327,6 +405,7 @@
                     }
 
                     displayResults(data);
+                    lastSearchData = data;
                     saveRecentGroup(group);
                 } catch (error) {
                     resultsDiv.innerHTML = `<div class="error"><strong>Ошибка:</strong> ${escapeHtml(error.message)}</div>`;
@@ -334,6 +413,12 @@
             }
 
             function displayResults(data) {
+                const selectedYear = getSelectedAcademicYear();
+                const allYears = data.meta?.academicYearsFound || Object.keys(data.academicYears || {});
+                const years = selectedYear
+                    ? allYears.filter(y => y === selectedYear)
+                    : allYears;
+
                 let html = '<div class="results-container">';
                 html += `
                     <div class="group-info">
@@ -349,11 +434,18 @@
                     `;
                 }
 
+                if (selectedYear) {
+                    html += `<div class="group-meta">Учебный год: ${escapeHtml(selectedYear)}</div>`;
+                }
+
                 html += '</div>';
 
-                const years = data.meta?.academicYearsFound || Object.keys(data.academicYears || {});
                 if (!years.length) {
-                    html += '<div class="no-data">Нет данных по преподавателям и предметам</div>';
+                    if (selectedYear) {
+                        html += `<div class="no-data">Нет данных за учебный год ${escapeHtml(selectedYear)}. Попробуйте другой год или «Все учебные годы».</div>`;
+                    } else {
+                        html += '<div class="no-data">Нет данных по преподавателям и предметам</div>';
+                    }
                 } else {
                     years.forEach(year => {
                         const block = data.academicYears[year];
@@ -394,12 +486,20 @@
             }
 
             displayRecentGroups();
+            updateYearOptions('');
             fetchGroups();
 
             const params = new URLSearchParams(window.location.search);
             const groupParam = params.get('group');
+            const yearParam = params.get('year');
             if (groupParam) {
                 groupInput.value = groupParam;
+                updateYearOptions(groupParam, yearParam || '');
+            }
+            if (yearParam) {
+                academicYearSelect.value = yearParam;
+            }
+            if (groupParam) {
                 searchGroup();
             }
 
