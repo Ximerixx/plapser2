@@ -90,6 +90,31 @@ function canonicalAuditory(name) {
     return formatAuditoryName(name);
 }
 
+function resolveAuditoryQuery(auditory, opts = {}) {
+    if (dbLayer && dbLayer.resolveAuditoryForSearch) {
+        const resolved = dbLayer.resolveAuditoryForSearch(auditory, opts);
+        if (resolved) {
+            return {
+                ...resolved,
+                kisName: dbLayer.getKisAuditoryName
+                    ? dbLayer.getKisAuditoryName(resolved)
+                    : resolved.rawName,
+            };
+        }
+    }
+    const rawName = canonicalAuditory(auditory);
+    return { rawName, kisName: rawName, normalizedId: null, legacyNames: [] };
+}
+
+function weekHasActiveLessons(weekData) {
+    if (!weekData || typeof weekData !== 'object') return false;
+    for (const day of Object.values(weekData)) {
+        const lessons = day?.lessons || [];
+        if (lessons.some(l => l.time && l.time.includes('-') && l.status !== 'Нет пар')) return true;
+    }
+    return false;
+}
+
 function normalizeLesson(lesson) {
     if (!lesson || lesson.status === 'Нет пар') return lesson;
     const rawAud = lesson.auditory || lesson.room || lesson.classroom || '';
@@ -292,18 +317,21 @@ async function getScheduleTeacher(teacher, baseDate, opts = null) {
 }
 
 async function getScheduleAuditory(auditory, baseDate, opts = null) {
-    const canonical = canonicalAuditory(auditory);
+    const resolved = resolveAuditoryQuery(auditory, { building: opts?.building });
+    const canonical = resolved.rawName || canonicalAuditory(auditory);
     const cacheKey = getScheduleCacheKey('auditory', canonical, baseDate);
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) {
         if (opts) recordStats({ entityType: 'auditory', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
         return { data: normalizeWeekData(cacheInfo.data), cacheInfo, source: 'cache' };
     }
+    let weekDataStale = null;
     if (dbLayer) {
         let weekData = null;
         try {
             weekData = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
             if (weekData) {
+                weekDataStale = weekData;
                 const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('auditory', canonical, baseDate);
                 if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
             }
@@ -315,8 +343,18 @@ async function getScheduleAuditory(auditory, baseDate, opts = null) {
             return { data: normalized, cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseAuditory(baseDate, canonical, opts);
-    const normalized = parsed ? normalizeWeekData(parsed) : {};
+    const kisName = resolved.kisName || canonical;
+    const parsed = await parseAuditory(baseDate, kisName, opts);
+    let normalized = parsed ? normalizeWeekData(parsed) : {};
+    if (!weekHasActiveLessons(normalized) && weekDataStale) {
+        const staleNormalized = normalizeWeekData(weekDataStale);
+        if (weekHasActiveLessons(staleNormalized)) {
+            normalized = staleNormalized;
+            setCachedSchedule(cacheKey, normalized);
+            if (opts) recordStats({ entityType: 'auditory', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
+            return { data: normalized, cacheInfo: null, source: 'db' };
+        }
+    }
     if (parsed) setCachedSchedule(cacheKey, normalized);
     if (opts && parsed) {
         const startTime = opts.startTime || Date.now();
@@ -387,12 +425,19 @@ async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
 }
 
 async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
-    const canonical = canonicalAuditory(auditory);
-    const fullData = await parseAuditory(baseDate, canonical, opts);
-    const normalized = fullData ? normalizeWeekData(fullData) : {};
+    const resolved = resolveAuditoryQuery(auditory, { building: opts?.building });
+    const canonical = resolved.rawName || canonicalAuditory(auditory);
+    const kisName = resolved.kisName || canonical;
+    const fullData = await parseAuditory(baseDate, kisName, opts);
+    let normalized = fullData ? normalizeWeekData(fullData) : {};
+    if (!weekHasActiveLessons(normalized) && dbLayer) {
+        const weekDataStale = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
+        const staleNormalized = weekDataStale ? normalizeWeekData(weekDataStale) : null;
+        if (weekHasActiveLessons(staleNormalized)) normalized = staleNormalized;
+    }
     const cacheKey = getScheduleCacheKey('auditory', canonical, baseDate);
-    if (fullData) setCachedSchedule(cacheKey, normalized);
-    if (dbLayer && fullData && opts) {
+    if (normalized && Object.keys(normalized).length) setCachedSchedule(cacheKey, normalized);
+    if (dbLayer && normalized && Object.keys(normalized).length && opts) {
         try {
             const requestStatsId = dbLayer.insertRequestStats({
                 ip: opts.ip ?? null,

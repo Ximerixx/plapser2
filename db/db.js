@@ -3,7 +3,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-const { normalizeRoomType, parseAuditoryParts } = require('../parser/normalizeAuditory');
+const { normalizeRoomType, parseAuditoryParts, formatAuditoryName } = require('../parser/normalizeAuditory');
 
 const DB_PATH = path.join(__dirname, 'plapser.db');
 let db = null;
@@ -198,17 +198,115 @@ function migrateClassroomsToAuditories(d) {
     d.pragma('foreign_keys = ON');
 }
 
-function getCanonicalAuditoryName(rawName) {
-    const p = parseAuditoryParts(rawName);
-    if (!p.rawName) return '';
+function findNormalizedAuditoryByQuery(query, building = null) {
     const d = getDb();
-    let row = d.prepare('SELECT raw_name FROM normalized_auditories WHERE raw_name = ?').get(p.rawName);
-    if (row) return row.raw_name;
-    if (p.normalizedKey) {
-        row = d.prepare('SELECT raw_name FROM normalized_auditories WHERE normalized_key = ?').get(p.normalizedKey);
-        if (row) return row.raw_name;
+    const q = String(query ?? '').trim();
+    if (!q) return null;
+    const upper = q.toUpperCase();
+    if (building) {
+        const b = String(building).trim().toUpperCase();
+        return d.prepare(`
+            SELECT id, raw_name, normalized_key, room_number, room_type, building
+            FROM normalized_auditories
+            WHERE building = ? AND (raw_name = ? OR room_number = ? OR raw_name LIKE ?)
+            ORDER BY CASE WHEN raw_name = ? THEN 0 ELSE 1 END, id
+            LIMIT 1
+        `).get(b, q, upper, `%${q}%`, q) || null;
     }
-    return p.rawName;
+    return d.prepare(`
+        SELECT id, raw_name, normalized_key, room_number, room_type, building
+        FROM normalized_auditories
+        WHERE raw_name = ? OR room_number = ? OR raw_name LIKE ?
+        ORDER BY CASE WHEN raw_name = ? THEN 0 WHEN raw_name LIKE ? THEN 1 ELSE 2 END, id
+        LIMIT 1
+    `).get(q, upper, `%${q}%`, q, `${q}/%`) || null;
+}
+
+function findNormalizedRowByParts(d, parts) {
+    if (!parts?.rawName) return null;
+    let row = d.prepare(`
+        SELECT id, raw_name, normalized_key, room_number, room_type, building
+        FROM normalized_auditories WHERE raw_name = ?
+    `).get(parts.rawName);
+    if (row) return row;
+    if (parts.normalizedKey) {
+        row = d.prepare(`
+            SELECT id, raw_name, normalized_key, room_number, room_type, building
+            FROM normalized_auditories WHERE normalized_key = ?
+            ORDER BY id
+            LIMIT 1
+        `).get(parts.normalizedKey);
+    }
+    return row || null;
+}
+
+function collectLegacyAuditoryNames(d, normalizedId, normalizedKey, rawName) {
+    const names = new Set();
+    if (rawName) names.add(rawName);
+    const fromSlots = d.prepare(`
+        SELECT DISTINCT a.name AS name
+        FROM schedule_slots s
+        JOIN auditories a ON a.id = s.auditory_id
+        WHERE s.normalized_auditory_id = ? AND a.name IS NOT NULL AND TRIM(a.name) <> ''
+    `).all(normalizedId);
+    for (const r of fromSlots) names.add(r.name);
+    if (normalizedKey) {
+        const siblings = d.prepare(`
+            SELECT raw_name FROM normalized_auditories WHERE normalized_key = ?
+        `).all(normalizedKey);
+        for (const r of siblings) names.add(r.raw_name);
+    }
+    return [...names];
+}
+
+/** Резолв ввода → normalized_auditories (+ legacy-имена). Новый и старый формат, room_number + building. */
+function resolveAuditoryForSearch(query, opts = {}) {
+    const d = getDb();
+    const trimmed = String(query ?? '').trim();
+    if (!trimmed) return null;
+    const building = opts.building != null && String(opts.building).trim()
+        ? String(opts.building).trim().toUpperCase()
+        : null;
+    const formatted = formatAuditoryName(trimmed);
+    const parts = parseAuditoryParts(formatted);
+
+    let row = findNormalizedRowByParts(d, parts);
+    if (!row) row = findNormalizedAuditoryByQuery(trimmed, building);
+    if (!row && formatted !== trimmed) row = findNormalizedAuditoryByQuery(formatted, building);
+    if (!row) {
+        const legacyExact = d.prepare('SELECT name FROM auditories WHERE name = ?').get(trimmed)
+            || (formatted !== trimmed ? d.prepare('SELECT name FROM auditories WHERE name = ?').get(formatted) : null);
+        if (legacyExact) row = findNormalizedRowByParts(d, parseAuditoryParts(legacyExact.name));
+    }
+    if (!row) return null;
+
+    const legacyNames = collectLegacyAuditoryNames(d, row.id, row.normalized_key, row.raw_name);
+    return {
+        normalizedId: row.id,
+        rawName: row.raw_name,
+        normalizedKey: row.normalized_key,
+        roomNumber: row.room_number,
+        roomType: row.room_type,
+        building: row.building,
+        legacyNames,
+    };
+}
+
+/** Имя для KIS: предпочитаем legacy-написание из auditories, если отличается от канона. */
+function getKisAuditoryName(resolved) {
+    if (!resolved) return '';
+    const canonical = resolved.rawName || '';
+    const legacy = (resolved.legacyNames || []).filter(n => n && n !== canonical);
+    if (!legacy.length) return canonical;
+    legacy.sort((a, b) => a.localeCompare(b, 'ru'));
+    return legacy[0] || canonical;
+}
+
+function getCanonicalAuditoryName(rawName) {
+    const resolved = resolveAuditoryForSearch(rawName);
+    if (resolved) return resolved.rawName;
+    const p = parseAuditoryParts(formatAuditoryName(rawName));
+    return p.rawName || formatAuditoryName(rawName);
 }
 
 function ensureNormalizedAuditory(rawName, parts = null) {
@@ -677,21 +775,9 @@ function getStudentScheduleWeek(groupName, baseDate, subgroup = null) {
     return Object.keys(result).length ? result : null;
 }
 
-function resolveNormalizedAuditoryIdForRead(auditoryName) {
-    const d = getDb();
-    const canonical = getCanonicalAuditoryName(auditoryName);
-    const parts = parseAuditoryParts(canonical);
-    if (!parts.rawName) return null;
-
-    let row = d.prepare('SELECT id FROM normalized_auditories WHERE raw_name = ?').get(parts.rawName);
-    if (row) return row.id;
-
-    if (parts.normalizedKey) {
-        row = d.prepare('SELECT id FROM normalized_auditories WHERE normalized_key = ?').get(parts.normalizedKey);
-        if (row) return row.id;
-    }
-
-    return null;
+function resolveNormalizedAuditoryIdForRead(auditoryName, opts = {}) {
+    const resolved = resolveAuditoryForSearch(auditoryName, opts);
+    return resolved ? resolved.normalizedId : null;
 }
 
 function getAuditorySchedule(auditoryName, date) {
@@ -868,30 +954,6 @@ function getFreeAuditoriesBySlot(date, timeRange, building, roomType = null) {
             roomType: r.room_type,
             building: r.building
         }));
-}
-
-function findNormalizedAuditoryByQuery(query, building = null) {
-    const d = getDb();
-    const q = String(query ?? '').trim();
-    if (!q) return null;
-    const upper = q.toUpperCase();
-    if (building) {
-        const b = String(building).trim().toUpperCase();
-        return d.prepare(`
-            SELECT id, raw_name, room_number, room_type, building
-            FROM normalized_auditories
-            WHERE building = ? AND (raw_name = ? OR room_number = ? OR raw_name LIKE ?)
-            ORDER BY CASE WHEN raw_name = ? THEN 0 ELSE 1 END, id
-            LIMIT 1
-        `).get(b, q, upper, `%${q}%`, q) || null;
-    }
-    return d.prepare(`
-        SELECT id, raw_name, room_number, room_type, building
-        FROM normalized_auditories
-        WHERE raw_name = ? OR room_number = ? OR raw_name LIKE ?
-        ORDER BY CASE WHEN raw_name = ? THEN 0 ELSE 1 END, id
-        LIMIT 1
-    `).get(q, upper, `%${q}%`, q) || null;
 }
 
 function getFreeSlotsByAuditory(date, auditoryQuery, building = null) {
@@ -1414,6 +1476,8 @@ module.exports = {
     ensureAuditory,
     ensureNormalizedAuditory,
     getCanonicalAuditoryName,
+    resolveAuditoryForSearch,
+    getKisAuditoryName,
     ensureSubject,
     insertScheduleSlot,
     insertScheduleMeta,
