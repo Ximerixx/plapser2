@@ -190,6 +190,23 @@ function findAuditoryIdByAlias(rawName) {
     return row ? row.id : null;
 }
 
+function findAuditoryIdByCanonicalKey(canonicalKey) {
+    const d = getDb();
+    const row = d.prepare('SELECT id FROM auditories WHERE canonical_key = ?').get(canonicalKey);
+    return row ? row.id : null;
+}
+
+function findAuditoryAliasBySource(auditoryId, sourceCode = 'kis') {
+    const d = getDb();
+    const row = d.prepare(`
+        SELECT raw_name FROM auditory_aliases
+        WHERE auditory_id = ? AND source_code = ?
+        ORDER BY last_seen_at DESC, id ASC
+        LIMIT 1
+    `).get(auditoryId, sourceCode);
+    return row ? row.raw_name : null;
+}
+
 function findAuditoryByCanonicalKey(canonicalKey) {
     const d = getDb();
     return d.prepare('SELECT * FROM auditories WHERE canonical_key = ?').get(canonicalKey) || null;
@@ -321,6 +338,17 @@ function getScheduleMeta(entityType, entityKey, date) {
         .get(entityType, entityKey, date) || null;
 }
 
+function getScheduleDatesFrom(entityType, entityKey, fromDate, maxDays = 21) {
+    const d = getDb();
+    const rows = d.prepare(`
+        SELECT date FROM schedule_meta
+        WHERE entity_type = ? AND entity_key = ? AND date >= ?
+        ORDER BY date ASC
+        LIMIT ?
+    `).all(entityType, entityKey, fromDate, maxDays);
+    return rows.map((row) => row.date);
+}
+
 // --- Read row queries ---
 
 function findGroupIdByCanonicalKey(groupName) {
@@ -332,6 +360,37 @@ function findGroupIdByCanonicalKey(groupName) {
     return row ? row.id : null;
 }
 
+function findTeacherIdByCanonicalKey(teacherName) {
+    const { teacherCanonicalKey } = require('./normalize/teachers');
+    const key = teacherCanonicalKey(teacherName);
+    if (!key) return null;
+    const d = getDb();
+    const row = d.prepare('SELECT id FROM teachers WHERE canonical_key = ?').get(key);
+    return row ? row.id : null;
+}
+
+function findGroupAliasBySource(groupId, sourceCode = 'kis') {
+    const d = getDb();
+    const row = d.prepare(`
+        SELECT raw_name FROM group_aliases
+        WHERE group_id = ? AND source_code = ?
+        ORDER BY last_seen_at DESC, id ASC
+        LIMIT 1
+    `).get(groupId, sourceCode);
+    return row ? row.raw_name : null;
+}
+
+function findTeacherAliasBySource(teacherId, sourceCode = 'kis') {
+    const d = getDb();
+    const row = d.prepare(`
+        SELECT raw_name FROM teacher_aliases
+        WHERE teacher_id = ? AND source_code = ?
+        ORDER BY last_seen_at DESC, id ASC
+        LIMIT 1
+    `).get(teacherId, sourceCode);
+    return row ? row.raw_name : null;
+}
+
 function getGroupIdForRead(groupName) {
     return findGroupIdByAlias(groupName)
         || findGroupIdByDisplayName(groupName)
@@ -339,16 +398,29 @@ function getGroupIdForRead(groupName) {
 }
 
 function getTeacherIdForRead(teacherName) {
-    return findTeacherIdByAlias(teacherName) || (() => {
-        const d = getDb();
-        const row = d.prepare('SELECT id FROM teachers WHERE display_name = ?').get(teacherName);
-        return row ? row.id : null;
-    })();
+    return findTeacherIdByAlias(teacherName)
+        || findTeacherIdByCanonicalKey(teacherName)
+        || (() => {
+            const d = getDb();
+            const row = d.prepare('SELECT id FROM teachers WHERE display_name = ?').get(teacherName);
+            return row ? row.id : null;
+        })();
 }
 
 function resolveAuditoryIdForRead(auditoryName) {
     const id = findAuditoryIdByAlias(auditoryName);
     if (id) return id;
+    const { parseAuditoryParts, formatAuditoryCanonical } = require('./normalize/auditories');
+    const parts = parseAuditoryParts(auditoryName);
+    if (parts.normalizedKey) {
+        const byKey = findAuditoryIdByCanonicalKey(parts.normalizedKey);
+        if (byKey) return byKey;
+    }
+    const canonical = formatAuditoryCanonical(auditoryName);
+    if (canonical && canonical !== auditoryName) {
+        const byCanonAlias = findAuditoryIdByAlias(canonical);
+        if (byCanonAlias) return byCanonAlias;
+    }
     const d = getDb();
     const row = d.prepare('SELECT id FROM auditories WHERE display_name = ?').get(auditoryName);
     return row ? row.id : null;
@@ -886,14 +958,20 @@ module.exports = {
     upsertGroupAlias,
     findGroupIdByAlias,
     findGroupIdByDisplayName,
+    findGroupIdByCanonicalKey,
+    findGroupAliasBySource,
     upsertTeacherCanon,
     upsertTeacherAlias,
     findTeacherIdByAlias,
+    findTeacherIdByCanonicalKey,
+    findTeacherAliasBySource,
     upsertSubjectCanon,
     upsertSubjectAlias,
     upsertAuditoryCanon,
     upsertAuditoryAlias,
     findAuditoryIdByAlias,
+    findAuditoryIdByCanonicalKey,
+    findAuditoryAliasBySource,
     findAuditoryByCanonicalKey,
     findLessonByFusionKey,
     findLessonBySlotCanon,
@@ -911,6 +989,7 @@ module.exports = {
     linkLessonIngest,
     upsertScheduleMeta,
     getScheduleMeta,
+    getScheduleDatesFrom,
     getGroupIdForRead,
     getTeacherIdForRead,
     resolveAuditoryIdForRead,

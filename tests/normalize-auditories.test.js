@@ -2,7 +2,13 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseAuditoryParts, normalizeRoomType, formatAuditoryDisplayName } = require('../fusionloom/normalize/auditories');
+const {
+    parseAuditoryParts,
+    normalizeRoomType,
+    formatAuditoryDisplayName,
+    formatAuditoryName,
+    kisAuditoryQueryName
+} = require('../fusionloom/normalize/auditories');
 const anomalies = require('../samples/data/anomalies.json');
 
 describe('normalizeRoomType', () => {
@@ -15,6 +21,18 @@ describe('normalizeRoomType', () => {
     it('практический кабинет остаётся пр', () => {
         assert.equal(normalizeRoomType('Пр'), 'пр');
         assert.equal(normalizeRoomType('пр'), 'пр');
+    });
+});
+
+describe('kisAuditoryQueryName', () => {
+    it('сохраняет регистр KIS для корпуса', () => {
+        assert.equal(kisAuditoryQueryName('116Л/7к'), '116Л/7к');
+        assert.equal(kisAuditoryQueryName('116Л/7К'), '116Л/7к');
+    });
+
+    it('formatAuditoryName не меняет регистр', () => {
+        assert.equal(formatAuditoryName('116Л/7к'), '116Л/7к');
+        assert.equal(formatAuditoryName('116Л/7К'), '116Л/7К');
     });
 });
 
