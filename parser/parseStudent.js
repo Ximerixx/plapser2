@@ -8,7 +8,7 @@ const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}$/iu;
 const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}/giu;
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-const { formatAuditoryName, formatAuditoryDisplayName } = require('./normalizeAuditory');
+const { kisAuditoryQueryName, formatAuditoryDisplayName } = require('./normalizeAuditory');
 const { formatTeacherDisplayName } = require('./parseGroupName');
 
 async function parseStudent(date, group, subgroup = null, opts = null) {
@@ -107,7 +107,7 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                     } else if (el.name === 'a') {
                         const s = buffer.trim();
                         if (s) elements.push(s);
-                        elements.push({ type: 'auditory', value: formatAuditoryName($(el).text()) });
+                        elements.push({ type: 'auditory', value: kisAuditoryQueryName($(el).text()) });
                         buffer = '';
                     }
                 });

@@ -15,7 +15,7 @@ const { kisGet } = require('../parser/kisGet');
 const { parseStudent } = require('../parser/parseStudent');
 const { parseTeacher } = require('../parser/parseTeacher');
 const { parseAuditory } = require('../parser/parseAuditory');
-const { formatAuditoryName } = require('../parser/normalizeAuditory');
+const { kisAuditoryQueryName } = require('../parser/normalizeAuditory');
 
 const BASE_DATE = process.argv[2] || '2026-09-08';
 const SAMPLE_SIZE = Number(process.argv[3]) || 5;
@@ -243,11 +243,11 @@ async function main() {
     }
 
     for (const auditory of pick.auditoriums) {
-        const kisName = formatAuditoryName(auditory);
+        const kisName = kisAuditoryQueryName(auditory);
         entries.push(await processEntity({
             type: 'auditory',
             key: auditory,
-            buildUrl: (a) => `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(formatAuditoryName(a))}&date=${BASE_DATE}`,
+            buildUrl: (a) => `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(kisAuditoryQueryName(a))}&date=${BASE_DATE}`,
             parseFn: () => parseAuditory(BASE_DATE, auditory),
             readFn: (read) => read.getAuditoryScheduleWeek(kisName, BASE_DATE),
             viewType: 'auditory'

@@ -1,6 +1,6 @@
 'use strict';
 
-/** KIS raw → человекочитаемый вывод (ключи в нижнем регистре после formatAuditoryName). */
+/** KIS raw → человекочитаемый вывод. */
 const SPECIAL_VENUE_DISPLAY = {
     'сз/гл': 'Спортзал'
 };
@@ -9,19 +9,50 @@ function cleanAuditoryName(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** Единый вид для ссылок: без пробелов вокруг «/», корпус в верхнем регистре. */
-function formatAuditoryName(value) {
+/** Без пробелов вокруг «/», регистр как в источнике. */
+function cleanAuditoryLayout(value) {
     const s = cleanAuditoryName(value);
     if (!s) return '';
     const slashIdx = s.indexOf('/');
     if (slashIdx < 0) return s;
     const left = s.slice(0, slashIdx).replace(/\s+$/g, '');
+    const right = s.slice(slashIdx + 1).trim();
+    return right ? `${left}/${right}` : left;
+}
+
+/** Имя для запросов к KIS — регистр важен (напр. 116Л/7к, не 116Л/7К). */
+function formatAuditoryName(value) {
+    return cleanAuditoryLayout(value);
+}
+
+/** Канонический вид для кэша, ключей БД и отображения (корпус в верхнем регистре). */
+function formatAuditoryCanonical(value) {
+    const s = cleanAuditoryLayout(value);
+    if (!s) return '';
+    const slashIdx = s.indexOf('/');
+    if (slashIdx < 0) return s;
+    const left = s.slice(0, slashIdx);
     const right = s.slice(slashIdx + 1).trim().toUpperCase();
     return right ? `${left}/${right}` : left;
 }
 
+/**
+ * KIS на сервере регистрочувствителен: в списке «7к», а не «7К».
+ * Если точный alias неизвестен — приводим букву после цифр в корпусе к нижнему регистру.
+ */
+function kisAuditoryQueryName(value) {
+    const s = cleanAuditoryLayout(value);
+    if (!s) return '';
+    const slashIdx = s.indexOf('/');
+    if (slashIdx < 0) return s;
+    const left = s.slice(0, slashIdx);
+    const right = s.slice(slashIdx + 1).trim();
+    const kisRight = right.replace(/^(\d+)([А-ЯЁ])(.*)$/u, (_, digits, letter, rest) => digits + letter.toLowerCase() + rest);
+    return kisRight ? `${left}/${kisRight}` : left;
+}
+
 function formatAuditoryDisplayName(value) {
-    const raw = formatAuditoryName(value);
+    const raw = formatAuditoryCanonical(value);
     if (!raw) return '';
     const special = SPECIAL_VENUE_DISPLAY[raw.toLowerCase()];
     if (special) return special;
@@ -62,7 +93,7 @@ function parseBuildingPart(right) {
 }
 
 function parseAuditoryParts(rawName) {
-    const raw = formatAuditoryName(rawName);
+    const raw = formatAuditoryCanonical(rawName);
     if (!raw) {
         return { rawName: '', roomNumber: null, roomType: null, building: null, normalizedKey: '', displayName: '' };
     }
@@ -109,7 +140,10 @@ function parseAuditoryParts(rawName) {
 
 module.exports = {
     cleanAuditoryName,
+    cleanAuditoryLayout,
     formatAuditoryName,
+    formatAuditoryCanonical,
+    kisAuditoryQueryName,
     formatAuditoryDisplayName,
     normalizeRoomType,
     parseBuildingPart,

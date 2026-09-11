@@ -2,9 +2,15 @@
 
 const db = require('./fusionloom_db');
 const { parseGroupName, groupCanonicalKey, groupDisplayName } = require('./normalize/groups');
-const { normalizeTeacherName, teacherCanonicalKey } = require('./normalize/teachers');
+const { normalizeTeacherName, teacherCanonicalKey, formatTeacherDisplayName } = require('./normalize/teachers');
 const { subjectCanonicalKey, subjectDisplayName } = require('./normalize/subjects');
-const { parseAuditoryParts, formatAuditoryName } = require('./normalize/auditories');
+const {
+    parseAuditoryParts,
+    formatAuditoryCanonical,
+    cleanAuditoryLayout,
+    kisAuditoryQueryName
+} = require('./normalize/auditories');
+const { kisGroupQueryName, kisTeacherQueryName } = require('./normalize/kis_query');
 
 const PLACEHOLDER_GROUP = '—';
 
@@ -55,11 +61,17 @@ function resolveSubject(rawName, sourceCode = 'kis') {
 }
 
 function resolveAuditory(rawName, sourceCode = 'kis') {
-    const raw = formatAuditoryName(rawName);
-    if (!raw) return null;
-    const existing = db.findAuditoryIdByAlias(raw);
-    if (existing) return existing;
-    const parts = parseAuditoryParts(raw);
+    const kisRaw = cleanAuditoryLayout(rawName);
+    if (!kisRaw) return null;
+    const parts = parseAuditoryParts(kisRaw);
+    const existing = db.findAuditoryIdByAlias(kisRaw)
+        || (parts.normalizedKey ? db.findAuditoryIdByCanonicalKey(parts.normalizedKey) : null);
+    if (existing) {
+        db.upsertAuditoryAlias(existing, kisRaw, sourceCode);
+        const canonical = formatAuditoryCanonical(kisRaw);
+        if (canonical !== kisRaw) db.upsertAuditoryAlias(existing, canonical, 'canonical');
+        return existing;
+    }
     if (!parts.normalizedKey && !parts.rawName) return null;
     const existingCanon = db.findAuditoryByCanonicalKey(parts.normalizedKey);
     let auditoryId;
@@ -67,20 +79,64 @@ function resolveAuditory(rawName, sourceCode = 'kis') {
         auditoryId = existingCanon.id;
     } else {
         auditoryId = db.upsertAuditoryCanon({
-            displayName: parts.rawName || raw,
-            canonicalKey: parts.normalizedKey || raw.toUpperCase(),
+            displayName: parts.rawName || formatAuditoryCanonical(kisRaw),
+            canonicalKey: parts.normalizedKey || formatAuditoryCanonical(kisRaw).toUpperCase(),
             roomNumber: parts.roomNumber,
             roomType: parts.roomType,
             building: parts.building
         });
     }
-    db.upsertAuditoryAlias(auditoryId, raw, sourceCode);
+    db.upsertAuditoryAlias(auditoryId, kisRaw, sourceCode);
+    const canonical = formatAuditoryCanonical(kisRaw);
+    if (canonical !== kisRaw) db.upsertAuditoryAlias(auditoryId, canonical, 'canonical');
     return auditoryId;
 }
 
-/** KIS/query key — сырой формат, не «Спортзал». */
+/** Канонический ключ для кэша/чтения — не «Спортзал», корпус в верхнем регистре. */
 function getCanonicalAuditoryName(name) {
-    return formatAuditoryName(name);
+    return formatAuditoryCanonical(name);
+}
+
+function getKisGroupName(name) {
+    const layout = groupDisplayName(name);
+    if (!layout) return '';
+    let id = db.findGroupIdByAlias(layout) || db.findGroupIdByCanonicalKey(layout);
+    if (id) {
+        const kisAlias = db.findGroupAliasBySource(id, 'kis');
+        if (kisAlias) return kisAlias;
+    }
+    return kisGroupQueryName(layout);
+}
+
+function getKisTeacherName(name) {
+    const layout = String(name ?? '').trim();
+    if (!layout) return '';
+    let id = db.findTeacherIdByAlias(layout) || db.findTeacherIdByCanonicalKey(layout);
+    if (id) {
+        const kisAlias = db.findTeacherAliasBySource(id, 'kis');
+        if (kisAlias) return kisAlias;
+    }
+    return kisTeacherQueryName(layout);
+}
+
+function getCanonicalTeacherName(name) {
+    return formatTeacherDisplayName(getKisTeacherName(name) || name);
+}
+
+/** Точное имя для запроса к KIS (регистр как в их списке). */
+function getKisAuditoryName(name) {
+    const layout = cleanAuditoryLayout(name);
+    if (!layout) return '';
+    let id = db.findAuditoryIdByAlias(layout);
+    if (!id) {
+        const parts = parseAuditoryParts(layout);
+        if (parts.normalizedKey) id = db.findAuditoryIdByCanonicalKey(parts.normalizedKey);
+    }
+    if (id) {
+        const kisAlias = db.findAuditoryAliasBySource(id, 'kis');
+        if (kisAlias) return kisAuditoryQueryName(kisAlias);
+    }
+    return kisAuditoryQueryName(layout);
 }
 
 module.exports = {
@@ -89,5 +145,9 @@ module.exports = {
     resolveTeacher,
     resolveSubject,
     resolveAuditory,
-    getCanonicalAuditoryName
+    getCanonicalAuditoryName,
+    getKisAuditoryName,
+    getKisGroupName,
+    getKisTeacherName,
+    getCanonicalTeacherName
 };

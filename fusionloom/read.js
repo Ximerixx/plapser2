@@ -1,5 +1,9 @@
 'use strict';
 
+/** Календарная неделя по умолчанию. KIS от anchor date отдаёт ~14 дней — см. extendedWeek. */
+const WEEK_DAYS = 7;
+const KIS_EXTENDED_WEEK_MAX_DAYS = 21;
+
 const db = require('./fusionloom_db');
 const { normalizeRoomType, formatAuditoryDisplayName } = require('./normalize/auditories');
 const { formatTeacherDisplayName } = require('./normalize/teachers');
@@ -153,40 +157,48 @@ function getAuditorySchedule(auditoryName, date) {
     };
 }
 
-function getStudentScheduleWeek(groupName, baseDate, subgroup = null) {
-    const result = {};
-    for (let i = 0; i < 7; i++) {
+function weekDateRange(baseDate, dayCount) {
+    const dates = [];
+    for (let i = 0; i < dayCount; i++) {
         const d = new Date(baseDate + 'T12:00:00');
         d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayData = getStudentSchedule(groupName, dateStr, subgroup);
+        dates.push(d.toISOString().split('T')[0]);
+    }
+    return dates;
+}
+
+function resolveWeekDates(entityType, entityKey, baseDate, opts = {}) {
+    const maxDays = opts.maxDays ?? KIS_EXTENDED_WEEK_MAX_DAYS;
+    if (opts.extended) {
+        const known = db.getScheduleDatesFrom(entityType, entityKey, baseDate, maxDays);
+        if (known.length) return known;
+        return weekDateRange(baseDate, maxDays);
+    }
+    return weekDateRange(baseDate, WEEK_DAYS);
+}
+
+function collectWeekSchedule(getDayFn, dates) {
+    const result = {};
+    for (const dateStr of dates) {
+        const dayData = getDayFn(dateStr);
         if (dayData && dayData[dateStr]) Object.assign(result, dayData);
     }
     return Object.keys(result).length ? result : null;
 }
 
-function getTeacherScheduleWeek(teacherName, baseDate) {
-    const result = {};
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(baseDate + 'T12:00:00');
-        d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayData = getTeacherSchedule(teacherName, dateStr);
-        if (dayData && dayData[dateStr]) Object.assign(result, dayData);
-    }
-    return Object.keys(result).length ? result : null;
+function getStudentScheduleWeek(groupName, baseDate, subgroup = null, opts = {}) {
+    const dates = resolveWeekDates('group', groupName, baseDate, opts);
+    return collectWeekSchedule((dateStr) => getStudentSchedule(groupName, dateStr, subgroup), dates);
 }
 
-function getAuditoryScheduleWeek(auditoryName, baseDate) {
-    const result = {};
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(baseDate + 'T12:00:00');
-        d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayData = getAuditorySchedule(auditoryName, dateStr);
-        if (dayData && dayData[dateStr]) Object.assign(result, dayData);
-    }
-    return Object.keys(result).length ? result : null;
+function getTeacherScheduleWeek(teacherName, baseDate, opts = {}) {
+    const dates = resolveWeekDates('teacher', teacherName, baseDate, opts);
+    return collectWeekSchedule((dateStr) => getTeacherSchedule(teacherName, dateStr), dates);
+}
+
+function getAuditoryScheduleWeek(auditoryName, baseDate, opts = {}) {
+    const dates = resolveWeekDates('auditory', auditoryName, baseDate, opts);
+    return collectWeekSchedule((dateStr) => getAuditorySchedule(auditoryName, dateStr), dates);
 }
 
 function parseTimeRange(timeRange) {
@@ -239,12 +251,10 @@ function getFreeSlotsByAuditory(date, auditoryQuery, building = null) {
     };
 }
 
-function getScheduleMaxCreatedAtMinForWeek(entityType, entityKey, baseDate) {
+function getScheduleMaxCreatedAtMinForWeek(entityType, entityKey, baseDate, opts = {}) {
+    const dates = resolveWeekDates(entityType, entityKey, baseDate, opts);
     let minTs = null;
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(baseDate + 'T12:00:00');
-        d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
+    for (const dateStr of dates) {
         const ts = db.getScheduleMaxCreatedAt(entityType, entityKey, dateStr);
         if (ts == null) return null;
         if (minTs == null || ts < minTs) minTs = ts;
