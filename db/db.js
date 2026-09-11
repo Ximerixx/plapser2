@@ -3,7 +3,13 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-const { normalizeRoomType, parseAuditoryParts, formatAuditoryName } = require('../parser/normalizeAuditory');
+const {
+    normalizeRoomType,
+    parseAuditoryParts,
+    formatAuditoryName,
+    formatAuditoryDisplayName
+} = require('../parser/normalizeAuditory');
+const { formatTeacherDisplayName } = require('../parser/parseGroupName');
 
 const DB_PATH = path.join(__dirname, 'plapser.db');
 let db = null;
@@ -676,7 +682,7 @@ function getStudentSchedule(groupName, date, subgroup = null) {
     const dateDisplay = formatDateDisplay(date);
     const lessons = rows.map(r => {
         if (subgroup !== undefined && subgroup !== null && r.subgroup && String(r.subgroup) !== String(subgroup)) return null;
-        const auditory = (r.auditory_name != null ? String(r.auditory_name) : '');
+        const auditory = formatAuditoryDisplayName(r.auditory_name);
         return {
             time: `${r.time_start}-${r.time_end}`,
             type: (r.lesson_type != null ? String(r.lesson_type) : ''),
@@ -685,7 +691,7 @@ function getStudentSchedule(groupName, date, subgroup = null) {
             groups: [r.group_name],
             auditory,
             room: auditory,
-            teacher: (r.teacher_name != null ? String(r.teacher_name) : '')
+            teacher: formatTeacherDisplayName(r.teacher_name)
         };
     }).filter(Boolean);
 
@@ -738,7 +744,7 @@ function getTeacherSchedule(teacherName, date) {
     const byTime = {};
     rows.forEach(r => {
         const time = `${r.time_start}-${r.time_end}`;
-        const auditory = r.auditory_name || '';
+        const auditory = formatAuditoryDisplayName(r.auditory_name);
         if (!byTime[time]) {
             byTime[time] = { time, subject: r.subject_name || '', groups: [], auditory, room: auditory, subgroup: r.subgroup || null };
         }
@@ -838,9 +844,17 @@ function getAuditorySchedule(auditoryName, date) {
     const byTime = {};
     rows.forEach(r => {
         const time = `${r.time_start}-${r.time_end}`;
-        const auditory = r.auditory_name || '';
+        const auditory = formatAuditoryDisplayName(r.auditory_name);
         if (!byTime[time]) {
-            byTime[time] = { time, subject: r.subject_name || '', groups: [], auditory, room: auditory, subgroup: r.subgroup || null, teacher: r.teacher_name || '' };
+            byTime[time] = {
+                time,
+                subject: r.subject_name || '',
+                groups: [],
+                auditory,
+                room: auditory,
+                subgroup: r.subgroup || null,
+                teacher: formatTeacherDisplayName(r.teacher_name)
+            };
         }
         if (r.group_name && !byTime[time].groups.includes(r.group_name)) byTime[time].groups.push(r.group_name);
     });

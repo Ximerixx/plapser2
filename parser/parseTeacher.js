@@ -2,8 +2,8 @@ const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
 const { kisGet } = require('./kisGet');
 
-const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
-const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
+const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}$/iu;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}/giu;
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
 const { formatAuditoryName } = require('./normalizeAuditory');

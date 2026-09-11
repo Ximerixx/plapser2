@@ -2,7 +2,7 @@
 
 /**
  * JSAPI — общий слой доступа к расписанию и логам для HTTP-сервера и Telegram-бота.
- * Получение расписания (кэш → БД → парсеры), списки групп/преподавателей/аудиторий, recordStats.
+ * Кэш → fusionloom → парсеры KIS. Единственная точка входа в fusionloom для приложения.
  */
 
 const { parseStudent } = require('./parser/parseStudent');
@@ -12,12 +12,28 @@ const { kisGet } = require('./parser/kisGet');
 const { formatAuditoryName, parseAuditoryParts } = require('./parser/normalizeAuditory');
 const { parseGroupName, academicYearLabel, normalizeTeacherName } = require('./parser/parseGroupName');
 
-let dbLayer = null;
-try {
-    dbLayer = require('./db/db');
-} catch (e) {
-    console.warn('JSAPI: DB layer not available:', e.message);
-}
+const { ingestWeek } = require('./fusionloom/ingest');
+const loomRead = require('./fusionloom/read');
+const loomOps = require('./fusionloom/ops');
+const registry = require('./fusionloom/registry');
+
+const dbLayer = {
+    getStudentScheduleWeek: (...args) => loomRead.getStudentScheduleWeek(...args),
+    getTeacherScheduleWeek: (...args) => loomRead.getTeacherScheduleWeek(...args),
+    getAuditoryScheduleWeek: (...args) => loomRead.getAuditoryScheduleWeek(...args),
+    getScheduleMaxCreatedAtMinForWeek: (...args) => loomRead.getScheduleMaxCreatedAtMinForWeek(...args),
+    bumpScheduleCreatedAt: (...args) => loomRead.bumpScheduleCreatedAt(...args),
+    insertRequestStats: (opts) => loomOps.insertRequestStats(opts),
+    getDynamicSlotsByDate: (...args) => loomRead.getDynamicSlotsByDate(...args),
+    getFreeAuditoriesBySlot: (...args) => loomRead.getFreeAuditoriesBySlot(...args),
+    getFreeSlotsByAuditory: (...args) => loomRead.getFreeSlotsByAuditory(...args),
+    getNormalizedBuildings: () => loomRead.getNormalizedBuildings(),
+    getNormalizedAuditories: (b) => loomRead.getNormalizedAuditories(b),
+    getNormalizedRoomTypes: (b) => loomRead.getNormalizedRoomTypes(b),
+    getGroupTeachersAndSubjectsRows: (g) => loomRead.getGroupTeachersAndSubjectsRows(g),
+    getCanonicalAuditoryName: (n) => registry.getCanonicalAuditoryName(n),
+    ensureAuditory: (name) => { registry.resolveAuditory(name); }
+};
 
 const FRESHNESS_HOURS = 2;
 const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
@@ -91,17 +107,6 @@ function canonicalAuditory(name) {
 }
 
 function resolveAuditoryQuery(auditory, opts = {}) {
-    if (dbLayer && dbLayer.resolveAuditoryForSearch) {
-        const resolved = dbLayer.resolveAuditoryForSearch(auditory, opts);
-        if (resolved) {
-            return {
-                ...resolved,
-                kisName: dbLayer.getKisAuditoryName
-                    ? dbLayer.getKisAuditoryName(resolved)
-                    : resolved.rawName,
-            };
-        }
-    }
     const rawName = canonicalAuditory(auditory);
     return { rawName, kisName: rawName, normalizedId: null, legacyNames: [] };
 }
@@ -163,51 +168,51 @@ function weekDataEqual(a, b) {
 }
 
 function saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getStudentScheduleWeek(group, baseDate, null);
+        const weekFromDb = loomRead.getStudentScheduleWeek(group, baseDate, null);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('group', group, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('group', group, date);
         } else {
-            dbLayer.saveStudentScheduleToDb(group, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'group', viewKey: group, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveStudentScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveStudentScheduleToDb(group, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveStudentSchedule failed:', e.message);
+        ingestWeek({ viewType: 'group', viewKey: group, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
 function saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+        const weekFromDb = loomRead.getTeacherScheduleWeek(teacher, baseDate);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('teacher', teacher, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('teacher', teacher, date);
         } else {
-            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'teacher', viewKey: teacher, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveTeacherScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveTeacherScheduleToDb(teacher, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveTeacherSchedule failed:', e.message);
+        ingestWeek({ viewType: 'teacher', viewKey: teacher, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
 function saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const canonical = canonicalAuditory(auditory);
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
+        const weekFromDb = loomRead.getAuditoryScheduleWeek(canonical, baseDate);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('auditory', canonical, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('auditory', canonical, date);
         } else {
-            dbLayer.saveAuditoryScheduleToDb(canonical, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'auditory', viewKey: canonical, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveAuditoryScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveAuditoryScheduleToDb(canonical, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveAuditorySchedule failed:', e.message);
+        ingestWeek({ viewType: 'auditory', viewKey: canonical, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
@@ -393,7 +398,7 @@ async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, opts) {
             });
             saveStudentScheduleToDbOrBump(group, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveStudentScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveStudentSchedule failed:', e.message);
         }
     }
     return { data: normalized };
@@ -418,7 +423,7 @@ async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
             });
             saveTeacherScheduleToDbOrBump(teacher, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveTeacherScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveTeacherSchedule failed:', e.message);
         }
     }
     return { data: normalized };
@@ -451,7 +456,7 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
             });
             saveAuditoryScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveAuditoryScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveAuditorySchedule failed:', e.message);
         }
     }
     return { data: normalized };
@@ -721,6 +726,18 @@ function getGroupTeachersAndSubjects(groupName) {
     };
 }
 
+/** Preload / ops для server.js — не тянуть fusionloom напрямую. */
+const preloadOps = {
+    getTopRequestedEntities: (...args) => loomOps.getTopRequestedEntities(...args),
+    upsertPreloadState: (...args) => loomOps.upsertPreloadState(...args),
+    getPreloadStateEntities: () => loomOps.getPreloadStateEntities(),
+    updateLastPreloaded: (...args) => loomOps.updateLastPreloaded(...args),
+    /** В loom аудитории в registry; пересборка legacy normalized_auditories не нужна. */
+    rebuildNormalizedAuditories: () => {}
+};
+
+const tgbotDb = require('./fusionloom/tgbot');
+
 module.exports = {
     getScheduleGroup,
     getScheduleTeacher,
@@ -742,5 +759,7 @@ module.exports = {
     getNormalizedAuditories,
     getNormalizedRoomTypes,
     getGroupTeachersAndSubjects,
-    warmupAllSchedulesForDate
+    warmupAllSchedulesForDate,
+    preloadOps,
+    tgbotDb
 };

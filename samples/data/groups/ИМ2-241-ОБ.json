@@ -1,0 +1,305 @@
+{
+  "group": "ИМ2-241-ОБ",
+  "slots": [
+    {
+      "date": "2026-09-19",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Рындин В.Е",
+      "subject_raw": "лек. Экология",
+      "auditory_raw": "338Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-19",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Заревич А.И",
+      "subject_raw": "лаб. Информационные средства произ-ва электронной компонентной базы",
+      "auditory_raw": "4Комп/АГОР"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "пр. Основы военной подготовки",
+      "auditory_raw": "207Пр/АПП"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Толкачев А.В",
+      "subject_raw": "лек. Разработка мобильных приложений",
+      "auditory_raw": "301Л/ГЛ"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лек. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "94Лаб/ГЛ"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Макаренко Ф.В",
+      "subject_raw": "лаб. Программные средства измерений электронной компонентной базы",
+      "auditory_raw": "3Комп/АГОР"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": null,
+      "subject_raw": "Физическая культура",
+      "auditory_raw": "сз/ГЛ"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лаб. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "108Комп/7К"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Ильин Е.С",
+      "subject_raw": "лаб. Разработка мобильных приложений",
+      "auditory_raw": "220Комп/7К"
+    },
+    {
+      "date": "2026-09-16",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": null,
+      "subject_raw": "Физическая культура",
+      "auditory_raw": "сз/ГЛ"
+    },
+    {
+      "date": "2026-09-16",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Серебрякова Н.А",
+      "subject_raw": "лек. Экономика",
+      "auditory_raw": "307аКомп/7К"
+    },
+    {
+      "date": "2026-09-16",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Макаренко Ф.В",
+      "subject_raw": "лаб. Программные средства измерений электронной компонентной базы",
+      "auditory_raw": "3Комп/АГОР"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Новикова В.А",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "30Лаб/ПРЭМ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Новикова В.А",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "9Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Новикова В.А.",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "9Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Новикова В.А.",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "9Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Новикова В.А",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "9Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Гонца А.С.",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Гонца А.С.",
+      "subject_raw": "Лек. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "Лек. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Арапов Д.В.",
+      "subject_raw": "лек. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "9Пр/ПРЭМ"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лек. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "9Пр/ПРЭМ"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Заревич А.И.",
+      "subject_raw": "лек. Информационные средства произ-ва электронной компонентной базы",
+      "auditory_raw": "2Комп/АГОР"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Заревич А.И",
+      "subject_raw": "лек. Информационные средства произ-ва электронной компонентной базы",
+      "auditory_raw": "2Комп/АГОР"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Заревич А.И.",
+      "subject_raw": "лек. Информационные средства произ-ва электронной компонентной базы",
+      "auditory_raw": "2Комп/АГОР"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Заревич А.И",
+      "subject_raw": "лек. Информационные средства произ-ва электронной компонентной базы",
+      "auditory_raw": "2Комп/АГОР"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лаб.",
+      "teacher_raw": "Ильин Е.С",
+      "subject_raw": "лаб. Разработка мобильных приложений",
+      "auditory_raw": "106Комп/7К"
+    },
+    {
+      "date": "2026-09-11",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Ильин Е.С.",
+      "subject_raw": "лаб. Разработка мобильных приложений",
+      "auditory_raw": "106Комп/7К"
+    }
+  ]
+}
