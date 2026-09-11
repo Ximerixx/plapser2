@@ -33,8 +33,8 @@ async function main() {
         return;
     }
 
-    const db = require('../db/db');
     const jsapi = require('../jsapi');
+    const db = jsapi.tgbotDb;
     const { getListByEntityType } = require('./lists');
     const { T } = require('./strings');
     const { formatScheduleBlock } = require('./jobs/daily');

@@ -128,6 +128,10 @@ dist
 # SQLite database (server-only; contents not in git)
 db/plapser.db
 db/*.db
+fusionloom/data/*.db
+fusionloom/data/*.db-journal
+fusionloom/data/*.db-wal
+fusionloom/data/*.db-shm
 db/*.db-journal
 db/*.db-wal
 db/*.db-shm
