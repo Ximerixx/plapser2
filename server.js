@@ -30,14 +30,8 @@ const {
     runOnStart: NIGHTLY_WARMUP_RUN_ON_START,
 } = plapserConfig.warmup;
 
-let dbLayer = null;
-try {
-    dbLayer = require("./db/db");
-} catch (e) {
-    console.warn("DB layer not available:", e.message);
-}
-
 const jsapi = require("./jsapi");
+const preloadOps = jsapi.preloadOps;
 
 const app = express();
 let isWarmupRunning = false;
@@ -728,20 +722,20 @@ function setCacheHeaders(res, cacheInfo) {
 }
 
 function runTopRecalc() {
-    if (!dbLayer || !dbLayer.getTopRequestedEntities || !dbLayer.upsertPreloadState) return;
+    if (!preloadOps?.getTopRequestedEntities || !preloadOps.upsertPreloadState) return;
     try {
-        const entities = dbLayer.getTopRequestedEntities(PRELOAD_TOP_DAYS, PRELOAD_TOP_LIMIT);
-        dbLayer.upsertPreloadState(entities);
+        const entities = preloadOps.getTopRequestedEntities(PRELOAD_TOP_DAYS, PRELOAD_TOP_LIMIT);
+        preloadOps.upsertPreloadState(entities);
     } catch (e) {
         console.warn("runTopRecalc failed:", e.message);
     }
 }
 
 async function runSchedulePreload() {
-    if (!dbLayer || !dbLayer.getPreloadStateEntities || !dbLayer.updateLastPreloaded) return;
+    if (!preloadOps?.getPreloadStateEntities || !preloadOps.updateLastPreloaded) return;
     const today = getDateOffset(0);
     try {
-        const list = dbLayer.getPreloadStateEntities();
+        const list = preloadOps.getPreloadStateEntities();
         for (const row of list) {
             try {
                 if (row.entity_type === 'group') {
@@ -751,7 +745,7 @@ async function runSchedulePreload() {
                 } else if (row.entity_type === 'auditory') {
                     await jsapi.getScheduleAuditory(row.entity_key, today);
                 }
-                dbLayer.updateLastPreloaded(row.entity_type, row.entity_key);
+                preloadOps.updateLastPreloaded(row.entity_type, row.entity_key);
             } catch (_) { }
         }
     } catch (e) {
@@ -961,10 +955,10 @@ app.get('/api/free-auditories/types', (req, res) => {
 
 app.post('/api/free-auditories/rebuild-normalized', (req, res) => {
     try {
-        if (!dbLayer || !dbLayer.rebuildNormalizedAuditories) {
+        if (!preloadOps?.rebuildNormalizedAuditories) {
             return res.status(503).json({ error: 'DB layer not available' });
         }
-        dbLayer.rebuildNormalizedAuditories();
+        preloadOps.rebuildNormalizedAuditories();
         return res.json({ ok: true });
     } catch (e) {
         console.error('free-auditories/rebuild-normalized failed:', e);

@@ -85,6 +85,17 @@ function loadPlapserConfig() {
                 false
             ),
         },
+        schedule: {
+            /** json-week/ics-week от сегодня: отдавать все известные даты (как KIS ~14 дн.), не только 7. */
+            extendedWeekFromToday: parseBool(
+                process.env.EXTENDED_WEEK_FROM_TODAY ?? file.EXTENDED_WEEK_FROM_TODAY,
+                true
+            ),
+            extendedWeekMaxDays: parseNum(
+                process.env.KIS_EXTENDED_WEEK_MAX_DAYS ?? file.KIS_EXTENDED_WEEK_MAX_DAYS,
+                21
+            ),
+        },
         kis: {
             proxyUrl: proxyUrl && String(proxyUrl).trim() ? String(proxyUrl).trim() : null,
             relayClientUserAgent: parseBool(

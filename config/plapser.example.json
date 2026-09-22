@@ -15,5 +15,8 @@
   "KIS_RANDOM_USER_AGENT": true,
   "KIS_PROBE_URL": "https://kis.vgltu.ru/list?type=Group",
   "KIS_SERVER_HEALTH_INTERVAL_MS": 3600000,
-  "KIS_PROXY_HEALTH_INTERVAL_MS": 60000
+  "KIS_PROXY_HEALTH_INTERVAL_MS": 60000,
+  "FUSIONLOOM_DB_PATH": "fusionloom/data/fusionloom.db",
+  "EXTENDED_WEEK_FROM_TODAY": true,
+  "KIS_EXTENDED_WEEK_MAX_DAYS": 21
 }

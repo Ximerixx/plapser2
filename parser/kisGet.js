@@ -7,6 +7,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { decodeHtmlCharset } = require('../fusionloom/normalize/encoding');
 const {
     applyKisProxyToAxiosConfig,
     recreateKisProxyAgent,
@@ -257,9 +258,15 @@ async function startKisServerHealthCheck(config) {
 async function kisGet(url, opts = null) {
     ensureInit();
     const userAgent = resolveKisUserAgent(opts);
+    const isHtml = /\/schedule\b/i.test(url);
     const cfg = buildAxiosConfig(userAgent);
+    if (isHtml) cfg.responseType = 'arraybuffer';
     try {
         const response = await axios.get(url, cfg);
+        if (isHtml && response.data) {
+            const ct = response.headers?.['content-type'] || '';
+            response.data = decodeHtmlCharset(response.data, ct);
+        }
         return response;
     } catch (err) {
         if (err.response && !isKisResponseOk(err.response.status)) {
@@ -267,7 +274,14 @@ async function kisGet(url, opts = null) {
         }
         if (isKisProxyEnabled() && isProxyTransportError(err)) {
             recreateKisProxyAgent();
-            return await axios.get(url, buildAxiosConfig(userAgent));
+            const retryCfg = buildAxiosConfig(userAgent);
+            if (isHtml) retryCfg.responseType = 'arraybuffer';
+            const response = await axios.get(url, retryCfg);
+            if (isHtml && response.data) {
+                const ct = response.headers?.['content-type'] || '';
+                response.data = decodeHtmlCharset(response.data, ct);
+            }
+            return response;
         }
         throw err;
     }

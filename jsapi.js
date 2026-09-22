@@ -2,7 +2,7 @@
 
 /**
  * JSAPI — общий слой доступа к расписанию и логам для HTTP-сервера и Telegram-бота.
- * Получение расписания (кэш → БД → парсеры), списки групп/преподавателей/аудиторий, recordStats.
+ * Кэш → fusionloom → парсеры KIS. Единственная точка входа в fusionloom для приложения.
  */
 
 const { parseStudent } = require('./parser/parseStudent');
@@ -11,13 +11,46 @@ const { parseAuditory } = require('./parser/parseAuditory');
 const { kisGet } = require('./parser/kisGet');
 const { formatAuditoryName, parseAuditoryParts } = require('./parser/normalizeAuditory');
 const { parseGroupName, academicYearLabel, normalizeTeacherName } = require('./parser/parseGroupName');
+const { kisGroupQueryName, kisTeacherQueryName } = require('./fusionloom/normalize/kis_query');
 
-let dbLayer = null;
+const { ingestWeek } = require('./fusionloom/ingest');
+const loomRead = require('./fusionloom/read');
+const loomOps = require('./fusionloom/ops');
+const registry = require('./fusionloom/registry');
+
+let scheduleConfig = { extendedWeekFromToday: true, extendedWeekMaxDays: 21 };
 try {
-    dbLayer = require('./db/db');
-} catch (e) {
-    console.warn('JSAPI: DB layer not available:', e.message);
-}
+    const { loadPlapserConfig } = require('./config/loader');
+    const cfg = loadPlapserConfig();
+    scheduleConfig = {
+        extendedWeekFromToday: cfg.schedule?.extendedWeekFromToday !== false,
+        extendedWeekMaxDays: cfg.schedule?.extendedWeekMaxDays ?? 21
+    };
+} catch (_) { }
+
+const dbLayer = {
+    getStudentScheduleWeek: (...args) => loomRead.getStudentScheduleWeek(...args),
+    getTeacherScheduleWeek: (...args) => loomRead.getTeacherScheduleWeek(...args),
+    getAuditoryScheduleWeek: (...args) => loomRead.getAuditoryScheduleWeek(...args),
+    getScheduleMaxCreatedAtMinForWeek: (...args) => loomRead.getScheduleMaxCreatedAtMinForWeek(...args),
+    bumpScheduleCreatedAt: (...args) => loomRead.bumpScheduleCreatedAt(...args),
+    insertRequestStats: (opts) => loomOps.insertRequestStats(opts),
+    getDynamicSlotsByDate: (...args) => loomRead.getDynamicSlotsByDate(...args),
+    getFreeAuditoriesBySlot: (...args) => loomRead.getFreeAuditoriesBySlot(...args),
+    getFreeSlotsByAuditory: (...args) => loomRead.getFreeSlotsByAuditory(...args),
+    getNormalizedBuildings: () => loomRead.getNormalizedBuildings(),
+    getNormalizedAuditories: (b) => loomRead.getNormalizedAuditories(b),
+    getNormalizedRoomTypes: (b) => loomRead.getNormalizedRoomTypes(b),
+    getGroupTeachersAndSubjectsRows: (g) => loomRead.getGroupTeachersAndSubjectsRows(g),
+    getCanonicalAuditoryName: (n) => registry.getCanonicalAuditoryName(n),
+    getKisAuditoryName: (n) => registry.getKisAuditoryName(n),
+    getKisGroupName: (n) => registry.getKisGroupName(n),
+    getKisTeacherName: (n) => registry.getKisTeacherName(n),
+    getCanonicalTeacherName: (n) => registry.getCanonicalTeacherName(n),
+    ensureAuditory: (name) => { registry.resolveAuditory(name); },
+    ensureGroup: (name) => { registry.resolveGroup(name); },
+    ensureTeacher: (name) => { registry.resolveTeacher(name); }
+};
 
 const FRESHNESS_HOURS = 2;
 const FRESHNESS_SECONDS = FRESHNESS_HOURS * 3600;
@@ -36,6 +69,21 @@ function getDateOffset(offsetDays = 0, baseDate = null) {
     const d = baseDate ? new Date(baseDate) : new Date();
     d.setDate(d.getDate() + offsetDays);
     return d.toISOString().split('T')[0];
+}
+
+function isWeekResponseType(type) {
+    return type === 'json-week' || type === 'ics-week';
+}
+
+/** json-week/ics-week от сегодня → читать все известные даты (как KIS), не только 7. */
+function weekReadOpts(baseDate, opts = null) {
+    const extended = scheduleConfig.extendedWeekFromToday
+        && isWeekResponseType(opts?.type)
+        && baseDate === getDateOffset(0);
+    return {
+        extended,
+        maxDays: scheduleConfig.extendedWeekMaxDays
+    };
 }
 
 function resolveBaseDate({ date = null, today = null, tomorrow = null } = {}) {
@@ -91,19 +139,32 @@ function canonicalAuditory(name) {
 }
 
 function resolveAuditoryQuery(auditory, opts = {}) {
-    if (dbLayer && dbLayer.resolveAuditoryForSearch) {
-        const resolved = dbLayer.resolveAuditoryForSearch(auditory, opts);
-        if (resolved) {
-            return {
-                ...resolved,
-                kisName: dbLayer.getKisAuditoryName
-                    ? dbLayer.getKisAuditoryName(resolved)
-                    : resolved.rawName,
-            };
-        }
-    }
     const rawName = canonicalAuditory(auditory);
-    return { rawName, kisName: rawName, normalizedId: null, legacyNames: [] };
+    const kisName = dbLayer.getKisAuditoryName
+        ? dbLayer.getKisAuditoryName(auditory)
+        : rawName;
+    return { rawName, kisName, normalizedId: null, legacyNames: [] };
+}
+
+async function resolveGroupQuery(group) {
+    const list = await getGroupsList();
+    const kisName = kisGroupQueryName(group, list);
+    if (dbLayer.ensureGroup) {
+        try { dbLayer.ensureGroup(kisName); } catch (_) { }
+    }
+    return { rawName: kisName, kisName };
+}
+
+async function resolveTeacherQuery(teacher) {
+    const list = await getTeachersList();
+    const kisName = kisTeacherQueryName(teacher, list);
+    const rawName = dbLayer.getCanonicalTeacherName
+        ? dbLayer.getCanonicalTeacherName(kisName)
+        : normalizeTeacherName(kisName);
+    if (dbLayer.ensureTeacher) {
+        try { dbLayer.ensureTeacher(kisName); } catch (_) { }
+    }
+    return { rawName, kisName };
 }
 
 function weekHasActiveLessons(weekData) {
@@ -163,51 +224,51 @@ function weekDataEqual(a, b) {
 }
 
 function saveStudentScheduleToDbOrBump(group, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getStudentScheduleWeek(group, baseDate, null);
+        const weekFromDb = loomRead.getStudentScheduleWeek(group, baseDate, null);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('group', group, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('group', group, date);
         } else {
-            dbLayer.saveStudentScheduleToDb(group, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'group', viewKey: group, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveStudentScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveStudentScheduleToDb(group, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveStudentSchedule failed:', e.message);
+        ingestWeek({ viewType: 'group', viewKey: group, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
 function saveTeacherScheduleToDbOrBump(teacher, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+        const weekFromDb = loomRead.getTeacherScheduleWeek(teacher, baseDate);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('teacher', teacher, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('teacher', teacher, date);
         } else {
-            dbLayer.saveTeacherScheduleToDb(teacher, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'teacher', viewKey: teacher, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveTeacherScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveTeacherScheduleToDb(teacher, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveTeacherSchedule failed:', e.message);
+        ingestWeek({ viewType: 'teacher', viewKey: teacher, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
 function saveAuditoryScheduleToDbOrBump(auditory, baseDate, fullData, requestStatsId) {
-    if (!dbLayer || !fullData) return;
+    if (!fullData) return;
     const canonical = canonicalAuditory(auditory);
     const normalizedData = normalizeWeekData(fullData);
     try {
-        const weekFromDb = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
+        const weekFromDb = loomRead.getAuditoryScheduleWeek(canonical, baseDate);
         if (weekFromDb && weekDataEqual(normalizedData, weekFromDb)) {
-            for (const date of Object.keys(normalizedData)) dbLayer.bumpScheduleCreatedAt('auditory', canonical, date);
+            for (const date of Object.keys(normalizedData)) loomRead.bumpScheduleCreatedAt('auditory', canonical, date);
         } else {
-            dbLayer.saveAuditoryScheduleToDb(canonical, baseDate, normalizedData, requestStatsId);
+            ingestWeek({ viewType: 'auditory', viewKey: canonical, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
         }
     } catch (e) {
-        console.warn('jsapi saveAuditoryScheduleToDbOrBump failed:', e.message);
-        dbLayer.saveAuditoryScheduleToDb(canonical, baseDate, normalizedData, requestStatsId);
+        console.warn('jsapi saveAuditorySchedule failed:', e.message);
+        ingestWeek({ viewType: 'auditory', viewKey: canonical, anchorDate: baseDate, parsedWeek: normalizedData, requestStatsId });
     }
 }
 
@@ -231,29 +292,33 @@ function recordStats({ entityType, entityKey, requestedAt, processingTimeMs, typ
 }
 
 async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
-    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
+    const resolved = await resolveGroupQuery(group);
+    const canonical = resolved.rawName || group;
+    const kisName = resolved.kisName || canonical;
+    const readOpts = weekReadOpts(baseDate, opts);
+    const cacheKey = getScheduleCacheKey('student', canonical, baseDate, subgroup);
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) {
-        if (opts) recordStats({ entityType: 'group', entityKey: group, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
+        if (opts) recordStats({ entityType: 'group', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
         return { data: normalizeWeekData(cacheInfo.data), cacheInfo, source: 'cache' };
     }
     if (dbLayer) {
         let weekData = null;
         try {
-            weekData = dbLayer.getStudentScheduleWeek(group, baseDate, subgroup);
+            weekData = dbLayer.getStudentScheduleWeek(canonical, baseDate, subgroup, readOpts);
             if (weekData) {
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('group', group, baseDate);
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('group', canonical, baseDate, readOpts);
                 if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
             }
         } catch (_) { weekData = null; }
         if (weekData) {
             const normalized = normalizeWeekData(weekData);
             setCachedSchedule(cacheKey, normalized);
-            if (opts) recordStats({ entityType: 'group', entityKey: group, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
+            if (opts) recordStats({ entityType: 'group', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
             return { data: normalized, cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseStudent(baseDate, group, subgroup, opts);
+    const parsed = await parseStudent(baseDate, kisName, subgroup, opts);
     const normalized = parsed ? normalizeWeekData(parsed) : {};
     if (parsed) setCachedSchedule(cacheKey, normalized);
     if (opts && parsed) {
@@ -262,41 +327,45 @@ async function getScheduleGroup(group, baseDate, subgroup = null, opts = null) {
             ip: opts.ip ?? null,
             userAgent: opts.userAgent ?? null,
             entityType: 'group',
-            entityKey: group,
+            entityKey: canonical,
             requestedAt: startTime,
             processingTimeMs: Date.now() - startTime,
             type: opts.type || 'json',
             source: 'source'
         }) : null;
-        saveStudentScheduleToDbOrBump(group, baseDate, normalized, requestStatsId);
+        saveStudentScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
     }
     return { data: normalized, cacheInfo: null, source: 'source' };
 }
 
 async function getScheduleTeacher(teacher, baseDate, opts = null) {
-    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
+    const resolved = await resolveTeacherQuery(teacher);
+    const canonical = resolved.rawName || teacher;
+    const kisName = resolved.kisName || canonical;
+    const readOpts = weekReadOpts(baseDate, opts);
+    const cacheKey = getScheduleCacheKey('teacher', canonical, baseDate);
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) {
-        if (opts) recordStats({ entityType: 'teacher', entityKey: teacher, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
+        if (opts) recordStats({ entityType: 'teacher', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'cache', ip: opts.ip, userAgent: opts.userAgent });
         return { data: normalizeWeekData(cacheInfo.data), cacheInfo, source: 'cache' };
     }
     if (dbLayer) {
         let weekData = null;
         try {
-            weekData = dbLayer.getTeacherScheduleWeek(teacher, baseDate);
+            weekData = dbLayer.getTeacherScheduleWeek(canonical, baseDate, readOpts);
             if (weekData) {
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('teacher', teacher, baseDate);
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('teacher', canonical, baseDate, readOpts);
                 if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
             }
         } catch (_) { weekData = null; }
         if (weekData) {
             const normalized = normalizeWeekData(weekData);
             setCachedSchedule(cacheKey, normalized);
-            if (opts) recordStats({ entityType: 'teacher', entityKey: teacher, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
+            if (opts) recordStats({ entityType: 'teacher', entityKey: canonical, requestedAt: opts.startTime, processingTimeMs: Date.now() - (opts.startTime || Date.now()), type: opts.type || 'json', source: 'db', ip: opts.ip, userAgent: opts.userAgent });
             return { data: normalized, cacheInfo: null, source: 'db' };
         }
     }
-    const parsed = await parseTeacher(baseDate, teacher, opts);
+    const parsed = await parseTeacher(baseDate, kisName, opts);
     const normalized = parsed ? normalizeWeekData(parsed) : {};
     if (parsed) setCachedSchedule(cacheKey, normalized);
     if (opts && parsed) {
@@ -305,13 +374,13 @@ async function getScheduleTeacher(teacher, baseDate, opts = null) {
             ip: opts.ip ?? null,
             userAgent: opts.userAgent ?? null,
             entityType: 'teacher',
-            entityKey: teacher,
+            entityKey: canonical,
             requestedAt: startTime,
             processingTimeMs: Date.now() - startTime,
             type: opts.type || 'json',
             source: 'source'
         }) : null;
-        saveTeacherScheduleToDbOrBump(teacher, baseDate, normalized, requestStatsId);
+        saveTeacherScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
     }
     return { data: normalized, cacheInfo: null, source: 'source' };
 }
@@ -319,6 +388,7 @@ async function getScheduleTeacher(teacher, baseDate, opts = null) {
 async function getScheduleAuditory(auditory, baseDate, opts = null) {
     const resolved = resolveAuditoryQuery(auditory, { building: opts?.building });
     const canonical = resolved.rawName || canonicalAuditory(auditory);
+    const readOpts = weekReadOpts(baseDate, opts);
     const cacheKey = getScheduleCacheKey('auditory', canonical, baseDate);
     const cacheInfo = getCachedSchedule(cacheKey);
     if (cacheInfo) {
@@ -329,10 +399,10 @@ async function getScheduleAuditory(auditory, baseDate, opts = null) {
     if (dbLayer) {
         let weekData = null;
         try {
-            weekData = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
+            weekData = dbLayer.getAuditoryScheduleWeek(canonical, baseDate, readOpts);
             if (weekData) {
                 weekDataStale = weekData;
-                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('auditory', canonical, baseDate);
+                const age = dbLayer.getScheduleMaxCreatedAtMinForWeek('auditory', canonical, baseDate, readOpts);
                 if (age == null || (Math.floor(Date.now() / 1000) - age) > FRESHNESS_SECONDS) weekData = null;
             }
         } catch (_) { weekData = null; }
@@ -375,9 +445,12 @@ async function getScheduleAuditory(auditory, baseDate, opts = null) {
 
 /** Обновление из источника при refresh (source_asked). */
 async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, opts) {
-    const fullData = await parseStudent(baseDate, group, subgroup, opts);
+    const resolved = await resolveGroupQuery(group);
+    const canonical = resolved.rawName || group;
+    const kisName = resolved.kisName || canonical;
+    const fullData = await parseStudent(baseDate, kisName, subgroup, opts);
     const normalized = fullData ? normalizeWeekData(fullData) : {};
-    const cacheKey = getScheduleCacheKey('student', group, baseDate, subgroup);
+    const cacheKey = getScheduleCacheKey('student', canonical, baseDate, subgroup);
     if (fullData) setCachedSchedule(cacheKey, normalized);
     if (dbLayer && fullData && opts) {
         try {
@@ -385,24 +458,27 @@ async function fetchStudentFromSourceAndSave(group, baseDate, subgroup, opts) {
                 ip: opts.ip ?? null,
                 userAgent: opts.userAgent ?? null,
                 entityType: 'group',
-                entityKey: group,
+                entityKey: canonical,
                 requestedAt: opts.startTime,
                 processingTimeMs: Date.now() - opts.startTime,
                 type: opts.type || 'json',
                 source: 'source_asked'
             });
-            saveStudentScheduleToDbOrBump(group, baseDate, normalized, requestStatsId);
+            saveStudentScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveStudentScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveStudentSchedule failed:', e.message);
         }
     }
     return { data: normalized };
 }
 
 async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
-    const fullData = await parseTeacher(baseDate, teacher, opts);
+    const resolved = await resolveTeacherQuery(teacher);
+    const canonical = resolved.rawName || teacher;
+    const kisName = resolved.kisName || canonical;
+    const fullData = await parseTeacher(baseDate, kisName, opts);
     const normalized = fullData ? normalizeWeekData(fullData) : {};
-    const cacheKey = getScheduleCacheKey('teacher', teacher, baseDate);
+    const cacheKey = getScheduleCacheKey('teacher', canonical, baseDate);
     if (fullData) setCachedSchedule(cacheKey, normalized);
     if (dbLayer && fullData && opts) {
         try {
@@ -410,15 +486,15 @@ async function fetchTeacherFromSourceAndSave(teacher, baseDate, opts) {
                 ip: opts.ip ?? null,
                 userAgent: opts.userAgent ?? null,
                 entityType: 'teacher',
-                entityKey: teacher,
+                entityKey: canonical,
                 requestedAt: opts.startTime,
                 processingTimeMs: Date.now() - opts.startTime,
                 type: opts.type || 'json',
                 source: 'source_asked'
             });
-            saveTeacherScheduleToDbOrBump(teacher, baseDate, normalized, requestStatsId);
+            saveTeacherScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveTeacherScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveTeacherSchedule failed:', e.message);
         }
     }
     return { data: normalized };
@@ -428,10 +504,11 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
     const resolved = resolveAuditoryQuery(auditory, { building: opts?.building });
     const canonical = resolved.rawName || canonicalAuditory(auditory);
     const kisName = resolved.kisName || canonical;
+    const readOpts = weekReadOpts(baseDate, opts);
     const fullData = await parseAuditory(baseDate, kisName, opts);
     let normalized = fullData ? normalizeWeekData(fullData) : {};
     if (!weekHasActiveLessons(normalized) && dbLayer) {
-        const weekDataStale = dbLayer.getAuditoryScheduleWeek(canonical, baseDate);
+        const weekDataStale = dbLayer.getAuditoryScheduleWeek(canonical, baseDate, readOpts);
         const staleNormalized = weekDataStale ? normalizeWeekData(weekDataStale) : null;
         if (weekHasActiveLessons(staleNormalized)) normalized = staleNormalized;
     }
@@ -451,7 +528,7 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
             });
             saveAuditoryScheduleToDbOrBump(canonical, baseDate, normalized, requestStatsId);
         } catch (e) {
-            console.warn('jsapi refresh saveAuditoryScheduleToDb failed:', e.message);
+            console.warn('jsapi refresh saveAuditorySchedule failed:', e.message);
         }
     }
     return { data: normalized };
@@ -461,10 +538,13 @@ async function fetchAuditoryFromSourceAndSave(auditory, baseDate, opts) {
 async function getGroupsList() {
     if (Date.now() - groupsCache.lastUpdated > LIST_CACHE_TTL) {
         const { data: groups } = await kisGet('https://kis.vgltu.ru/list?type=Group', null);
-        groupsCache = {
-            data: Array.isArray(groups) ? groups.filter(g => typeof g === 'string' && g.trim() !== '') : [],
-            lastUpdated: Date.now()
-        };
+        const data = Array.isArray(groups) ? groups.filter(g => typeof g === 'string' && g.trim() !== '') : [];
+        for (const name of data) {
+            if (dbLayer.ensureGroup) {
+                try { dbLayer.ensureGroup(name); } catch (_) { }
+            }
+        }
+        groupsCache = { data, lastUpdated: Date.now() };
     }
     return groupsCache.data;
 }
@@ -472,10 +552,13 @@ async function getGroupsList() {
 async function getTeachersList() {
     if (Date.now() - teachersCache.lastUpdated > LIST_CACHE_TTL) {
         const { data: teachers } = await kisGet('https://kis.vgltu.ru/list?type=Teacher', null);
-        teachersCache = {
-            data: Array.isArray(teachers) ? teachers.filter(t => typeof t === 'string' && t.trim() !== '') : [],
-            lastUpdated: Date.now()
-        };
+        const data = Array.isArray(teachers) ? teachers.filter(t => typeof t === 'string' && t.trim() !== '') : [];
+        for (const name of data) {
+            if (dbLayer.ensureTeacher) {
+                try { dbLayer.ensureTeacher(name); } catch (_) { }
+            }
+        }
+        teachersCache = { data, lastUpdated: Date.now() };
     }
     return teachersCache.data;
 }
@@ -488,10 +571,10 @@ async function getAuditoriesList() {
         for (const name of raw) {
             const canonical = canonicalAuditory(name);
             if (!canonical) continue;
-            const key = parseAuditoryParts(canonical).normalizedKey || canonical;
-            if (!byKey.has(key)) byKey.set(key, canonical);
+            const key = parseAuditoryParts(name).normalizedKey || canonical;
+            if (!byKey.has(key)) byKey.set(key, name);
             if (dbLayer && dbLayer.ensureAuditory) {
-                try { dbLayer.ensureAuditory(canonical); } catch (_) { }
+                try { dbLayer.ensureAuditory(name); } catch (_) { }
             }
         }
         const auditories = [...byKey.values()].sort((a, b) => a.localeCompare(b, 'ru'));
@@ -721,6 +804,18 @@ function getGroupTeachersAndSubjects(groupName) {
     };
 }
 
+/** Preload / ops для server.js — не тянуть fusionloom напрямую. */
+const preloadOps = {
+    getTopRequestedEntities: (...args) => loomOps.getTopRequestedEntities(...args),
+    upsertPreloadState: (...args) => loomOps.upsertPreloadState(...args),
+    getPreloadStateEntities: () => loomOps.getPreloadStateEntities(),
+    updateLastPreloaded: (...args) => loomOps.updateLastPreloaded(...args),
+    /** В loom аудитории в registry; пересборка legacy normalized_auditories не нужна. */
+    rebuildNormalizedAuditories: () => {}
+};
+
+const tgbotDb = require('./fusionloom/tgbot');
+
 module.exports = {
     getScheduleGroup,
     getScheduleTeacher,
@@ -742,5 +837,7 @@ module.exports = {
     getNormalizedAuditories,
     getNormalizedRoomTypes,
     getGroupTeachersAndSubjects,
-    warmupAllSchedulesForDate
+    warmupAllSchedulesForDate,
+    preloadOps,
+    tgbotDb
 };

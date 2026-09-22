@@ -1,0 +1,305 @@
+{
+  "group": "ИС2-244-ОБ",
+  "slots": [
+    {
+      "date": "2026-09-19",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "314Л/ГЛ"
+    },
+    {
+      "date": "2026-09-19",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "1",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Перегудов А.Н",
+      "subject_raw": "лаб. Методы принятия решений в разработке програм. приложений ИС",
+      "auditory_raw": "204Комп/7К"
+    },
+    {
+      "date": "2026-09-19",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "1 п.г.",
+      "lesson_type": null,
+      "teacher_raw": "Перегудов А.Н.",
+      "subject_raw": "лаб. Методы принятия решений в разработке програм. приложений ИС",
+      "auditory_raw": "204Комп/7К"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": "1",
+      "lesson_type": "пр.",
+      "teacher_raw": "Ильин Е.С",
+      "subject_raw": "пр. Разработка мобильных приложений",
+      "auditory_raw": "215Комп/ГЛ"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": "1",
+      "lesson_type": "пр.",
+      "teacher_raw": "Занин И.Н",
+      "subject_raw": "пр. Тестирование программного обеспечения",
+      "auditory_raw": "108Комп/7К"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Толкачев А.В",
+      "subject_raw": "лек. Разработка мобильных приложений",
+      "auditory_raw": "119Л/7К"
+    },
+    {
+      "date": "2026-09-18",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "2",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Ильин Е.С",
+      "subject_raw": "лаб. Разработка мобильных приложений",
+      "auditory_raw": "97Комп/ГЛ"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": "2",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лаб. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "106Комп/7К"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Новикова В.А",
+      "subject_raw": "пр. Экономика",
+      "auditory_raw": "240Л/ГЛ"
+    },
+    {
+      "date": "2026-09-17",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "пр. Основы военной подготовки",
+      "auditory_raw": "206Пр/АПП"
+    },
+    {
+      "date": "2026-09-16",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "пр.",
+      "teacher_raw": "Рындин В.Е",
+      "subject_raw": "пр. Экология",
+      "auditory_raw": "338Пр/ГЛ"
+    },
+    {
+      "date": "2026-09-16",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Занин И.Н",
+      "subject_raw": "лек. Тестирование программного обеспечения",
+      "auditory_raw": "119Л/7К"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": "1",
+      "lesson_type": "пр.",
+      "teacher_raw": "Луцко Д.П",
+      "subject_raw": "пр. Web-разработка",
+      "auditory_raw": "215Комп/ГЛ"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лек. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "119Л/7К"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Рындин В.Е",
+      "subject_raw": "лек. Экология",
+      "auditory_raw": "348Л/ГЛ"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "2",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Перегудов А.Н",
+      "subject_raw": "лаб. Методы принятия решений в разработке програм. приложений ИС",
+      "auditory_raw": "16Комп/ПРЭМ"
+    },
+    {
+      "date": "2026-09-15",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "2 п.г.",
+      "lesson_type": null,
+      "teacher_raw": "Перегудов А.Н.",
+      "subject_raw": "лаб. Методы принятия решений в разработке програм. приложений ИС",
+      "auditory_raw": "16Комп/ПРЭМ"
+    },
+    {
+      "date": "2026-09-14",
+      "time_start": "10:10",
+      "time_end": "11:40",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": null,
+      "subject_raw": "Физическая культура",
+      "auditory_raw": "сз/ГЛ"
+    },
+    {
+      "date": "2026-09-14",
+      "time_start": "11:50",
+      "time_end": "13:20",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": null,
+      "subject_raw": "Физическая культура",
+      "auditory_raw": "сз/ГЛ"
+    },
+    {
+      "date": "2026-09-14",
+      "time_start": "13:40",
+      "time_end": "15:10",
+      "subgroup": "2",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Занин И.Н",
+      "subject_raw": "лаб. Тестирование программного обеспечения",
+      "auditory_raw": "16Комп/ПРЭМ"
+    },
+    {
+      "date": "2026-09-14",
+      "time_start": "15:20",
+      "time_end": "16:50",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Кравченко А.С",
+      "subject_raw": "лек. Методы принятия решений в разработке програм. приложений ИС",
+      "auditory_raw": "119Л/7К"
+    },
+    {
+      "date": "2026-09-14",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": "1",
+      "lesson_type": "лаб.",
+      "teacher_raw": "Арапов Д.В",
+      "subject_raw": "лаб. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "3Комп/АГОР"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Гонца А.С.",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Гонца А.С.",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": null,
+      "teacher_raw": "Гонца А.С.",
+      "subject_raw": "Лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "17:00",
+      "time_end": "18:30",
+      "subgroup": null,
+      "lesson_type": "лек.",
+      "teacher_raw": "Гонца А.С",
+      "subject_raw": "Лек. Основы военной подготовки",
+      "auditory_raw": "201Л/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "1 п.г.",
+      "lesson_type": null,
+      "teacher_raw": "Ильин Е.С.",
+      "subject_raw": "лаб. Разработка мобильных приложений",
+      "auditory_raw": "215Комп/ГЛ"
+    },
+    {
+      "date": "2026-09-12",
+      "time_start": "18:40",
+      "time_end": "20:10",
+      "subgroup": "2 п.г.",
+      "lesson_type": null,
+      "teacher_raw": "Арапов Д.В.",
+      "subject_raw": "лаб. Методы и средства проектирования информационных систем и технологий",
+      "auditory_raw": "106Комп/7К"
+    }
+  ]
+}

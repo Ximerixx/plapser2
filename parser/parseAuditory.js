@@ -2,12 +2,13 @@ const cheerio = require('cheerio');
 const { normalizeSubjectPrefix } = require('./normalizeSubject');
 const { kisGet } = require('./kisGet');
 
-const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
-const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
+const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}$/iu;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}/giu;
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-const { formatAuditoryName } = require('./normalizeAuditory');
+const { kisAuditoryQueryName, formatAuditoryDisplayName } = require('./normalizeAuditory');
+const { formatTeacherDisplayName } = require('./parseGroupName');
 
 async function parseAuditory(date, auditory, opts = null) {
     if (!auditory) {
@@ -18,7 +19,7 @@ async function parseAuditory(date, auditory, opts = null) {
         throw new Error('Не удалось определить дату');
     }
 
-    const queryAuditory = formatAuditoryName(auditory);
+    const queryAuditory = kisAuditoryQueryName(auditory);
     const url = `https://kis.vgltu.ru/schedule?auditory=${encodeURIComponent(queryAuditory)}&date=${date}`;
     const response = await kisGet(url, opts);
     const $ = cheerio.load(response.data);
@@ -79,7 +80,7 @@ async function parseAuditory(date, auditory, opts = null) {
                         return;
                     }
                     if (TEACHER_REGEX.test(s)) {
-                        teacher = s.replace(/\.$/, '');
+                        teacher = formatTeacherDisplayName(s.replace(/\.$/, ''));
                         return;
                     }
                     if (s.includes('п.г.')) {
@@ -100,14 +101,14 @@ async function parseAuditory(date, auditory, opts = null) {
 
                 const link = cellContent.find('a').text().trim();
                 if (link) {
-                    room = formatAuditoryName(link);
+                    room = kisAuditoryQueryName(link);
                 }
 
                 const fullNormalized = normalizeSubjectPrefix(subjectLine);
                 const hasPrefix = /^(лаб\.|лек\.|пр\.)\s/.test(fullNormalized);
                 const type = hasPrefix ? fullNormalized.split(/\s/)[0] : '';
 
-                const auditoryName = room || queryAuditory;
+                const auditoryName = formatAuditoryDisplayName(room || queryAuditory);
                 result[dateKey].lessons.push({
                     time,
                     type,

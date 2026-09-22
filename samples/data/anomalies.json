@@ -1,0 +1,101 @@
+{
+  "description": "Ручные кейсы аномалий нормализации — проверять глазами и тестами",
+  "auditories": [
+    {
+      "id": "307-prep-not-pr",
+      "raw": "307Преп/7К",
+      "note": "Преподавательская, НЕ практический кабинет",
+      "expected": {
+        "roomNumber": "307",
+        "roomType": "преп",
+        "building": "7К",
+        "rawName": "307Преп/7К"
+      },
+      "mustNot": { "roomType": "пр" }
+    },
+    {
+      "id": "307-prep-gl",
+      "raw": "307Преп/ГЛ",
+      "expected": {
+        "roomNumber": "307",
+        "roomType": "преп",
+        "building": "ГЛ"
+      },
+      "mustNot": { "roomType": "пр" }
+    },
+    {
+      "id": "307a-comp-7k",
+      "raw": "307аКомп/7К",
+      "expected": {
+        "roomNumber": "307а",
+        "roomType": "комп",
+        "building": "7К"
+      }
+    },
+    {
+      "id": "307-comp-app",
+      "raw": "307Комп /АПП",
+      "expected": {
+        "roomNumber": "307",
+        "roomType": "комп",
+        "building": "АПП"
+      }
+    },
+    {
+      "id": "119-lecture-7k",
+      "raw": "119Л/7к",
+      "expected": {
+        "roomNumber": "119",
+        "roomType": "лек",
+        "building": "7К",
+        "rawName": "119Л/7К"
+      }
+    },
+    {
+      "id": "116-lecture-7k",
+      "raw": "116Л/7к",
+      "expected": {
+        "roomNumber": "116",
+        "roomType": "лек",
+        "building": "7К"
+      }
+    },
+    {
+      "id": "117-lecture-7k",
+      "raw": "117Л/7к",
+      "expected": {
+        "roomNumber": "117",
+        "roomType": "лек",
+        "building": "7К"
+      }
+    },
+    {
+      "id": "207-practical",
+      "raw": "207Пр/АПП",
+      "expected": {
+        "roomNumber": "207",
+        "roomType": "пр",
+        "building": "АПП"
+      }
+    },
+    {
+      "id": "sports-ground",
+      "raw": "сз/ГЛ",
+      "note": "Спортзал — без номера кабинета, только корпус",
+      "expected": {
+        "roomNumber": null,
+        "building": "ГЛ",
+        "rawName": "сз/ГЛ",
+        "displayName": "Спортзал"
+      }
+    }
+  ],
+  "teachers": [
+    { "raw": "Павлов А.Ю.", "expected": "Павлов А.Ю." },
+    { "raw": "Перегудов А.Н", "expected": "Перегудов А.Н." },
+    { "raw": "Брындина Л.В", "expected": "Брындина Л.В." },
+    { "raw": "Заленская Н.Ю.", "expected": "Заленская Н.Ю." },
+    { "raw": "Толкачев А.В", "expected": "Толкачев А.В." },
+    { "raw": "Некрылова О.А.", "expected": "Некрылова О.А." }
+  ]
+}

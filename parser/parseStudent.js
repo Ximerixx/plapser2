@@ -4,11 +4,12 @@ const { kisGet } = require('./kisGet');
 
 const VALID_LESSON_TYPES = new Set(['лек.', 'пр.', 'лаб.']);
 // 2–3 буквы в префиксе (ИС2-244-ОБ и ОИС1-242-ОП)
-const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}$/;
-const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{3}-[А-ЯЁ]{2}/g;
+const GROUP_REGEX = /^[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}$/iu;
+const GROUP_REGEX_GLOBAL = /[А-ЯЁ]{2,3}\d-\d{2}\d-[А-ЯЁ]{2,4}/giu;
 const TEACHER_REGEX = /^[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.[А-ЯЁ]\.?$/;
 
-const { formatAuditoryName } = require('./normalizeAuditory');
+const { kisAuditoryQueryName, formatAuditoryDisplayName } = require('./normalizeAuditory');
+const { formatTeacherDisplayName } = require('./parseGroupName');
 
 async function parseStudent(date, group, subgroup = null, opts = null) {
     try {
@@ -106,7 +107,7 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                     } else if (el.name === 'a') {
                         const s = buffer.trim();
                         if (s) elements.push(s);
-                        elements.push({ type: 'auditory', value: formatAuditoryName($(el).text()) });
+                        elements.push({ type: 'auditory', value: kisAuditoryQueryName($(el).text()) });
                         buffer = '';
                     }
                 });
@@ -116,8 +117,8 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                 let hasType = false;
                 elements.forEach((element) => {
                     if (typeof element === 'object') {
-                        lesson.auditory = element.value;
-                        lesson.room = element.value;
+                        lesson.auditory = formatAuditoryDisplayName(element.value);
+                        lesson.room = lesson.auditory;
                         return;
                     }
 
@@ -155,7 +156,7 @@ async function parseStudent(date, group, subgroup = null, opts = null) {
                     }
 
                     if (TEACHER_REGEX.test(s)) {
-                        lesson.teacher = s.replace(/\.$/, '');
+                        lesson.teacher = formatTeacherDisplayName(s.replace(/\.$/, ''));
                     }
                 });
 
